@@ -257,6 +257,14 @@ preferred_port() {
   fi
 }
 
+preferred_hy2_port() {
+  if [[ "${AFX_PERF_PROFILE:-$AFX_DEFAULT_PERF_PROFILE}" == "extreme" ]]; then
+    random_port udp
+  else
+    preferred_port udp
+  fi
+}
+
 normalize_port() {
   local candidate="$1"
   local proto="$2"
@@ -1033,7 +1041,7 @@ install_fresh() {
   AFX_PERF_PROFILE=$(normalize_perf_profile "$(prompt_value "性能模式：1=极致性能 2=兼容基线" "1")")
   AFX_REALITY_SERVER=$(prompt_value "REALITY 握手站点" "$AFX_DEFAULT_REALITY_SERVER")
   AFX_REALITY_PORT=$(normalize_port "$(prompt_value "REALITY TCP 端口" "$(preferred_port tcp)")" tcp)
-  AFX_HY2_PORT=$(normalize_port "$(prompt_value "Hysteria 2 UDP 端口" "$(preferred_port udp)")" udp)
+  AFX_HY2_PORT=$(normalize_port "$(prompt_value "Hysteria 2 UDP 端口" "$(preferred_hy2_port)")" udp)
   note "Hysteria 2 现在支持两种模式：1 为 BBR 自适应模式；2 为 Brutal 固定速率模式。前者更适合未知链路，后者只适合你能准确估计带宽上限的场景。"
   AFX_HY2_MODE=$(normalize_hy2_mode "$(prompt_value "Hysteria 2 模式：1=BBR自适应 2=Brutal固定速率" "1")")
   if [[ "$AFX_HY2_MODE" == "brutal" ]]; then
@@ -1052,6 +1060,9 @@ install_fresh() {
   if [[ "$AFX_REALITY_PORT" != "443" || "$AFX_HY2_PORT" != "443" ]]; then
     warn "检测到 443 已被占用，AeroFlux 将使用 REALITY ${AFX_REALITY_PORT}/tcp 与 Hysteria 2 ${AFX_HY2_PORT}/udp"
     warn "请同步放行云防火墙与系统防火墙中的上述端口，否则客户端会显示延迟 -1ms 或无法连通"
+  fi
+  if [[ "$AFX_PERF_PROFILE" == "extreme" && "$AFX_HY2_PORT" == "443" ]]; then
+    warn "极致性能模式下手动固定 Hysteria 2 为 443/udp，可能会重新落入 UDP/443 的链路整形路径"
   fi
 
   configure_firewall_rules
