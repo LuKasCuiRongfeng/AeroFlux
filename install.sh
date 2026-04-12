@@ -249,6 +249,19 @@ configure_firewall_rules() {
     ufw allow "${AFX_REALITY_PORT}/tcp" >/dev/null
     ufw allow "${AFX_HY2_PORT}/udp" >/dev/null
   fi
+  # Bypass conntrack for Hysteria2 UDP — eliminates per-packet nf_conntrack overhead
+  if has iptables; then
+    iptables  -t raw -C PREROUTING -p udp --dport "${AFX_HY2_PORT}" -j NOTRACK 2>/dev/null || \
+      iptables  -t raw -A PREROUTING -p udp --dport "${AFX_HY2_PORT}" -j NOTRACK
+    iptables  -t raw -C OUTPUT     -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK 2>/dev/null || \
+      iptables  -t raw -A OUTPUT     -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK
+  fi
+  if has ip6tables; then
+    ip6tables -t raw -C PREROUTING -p udp --dport "${AFX_HY2_PORT}" -j NOTRACK 2>/dev/null || \
+      ip6tables -t raw -A PREROUTING -p udp --dport "${AFX_HY2_PORT}" -j NOTRACK
+    ip6tables -t raw -C OUTPUT     -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK 2>/dev/null || \
+      ip6tables -t raw -A OUTPUT     -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK
+  fi
 }
 
 public_host() {
@@ -379,6 +392,7 @@ render_config() {
     --arg hy2_mode "$AFX_HY2_MODE" \
     --arg cert_file "$AFX_CERT_FILE" \
     --arg key_file "$AFX_KEY_FILE" \
+    --arg state_dir "$AFX_STATE" \
     --argjson reality_port "$AFX_REALITY_PORT" \
     --argjson hy2_port "$AFX_HY2_PORT" \
     --argjson hy2_up "$(json_number_or_null "$AFX_HY2_UP")" \
@@ -449,7 +463,16 @@ render_config() {
           type: "block",
           tag: "block"
         }
-      ]
+      ],
+      route: {
+        auto_detect_interface: true
+      },
+      experimental: {
+        cache_file: {
+          enabled: true,
+          path: ($state_dir + "/cache.db")
+        }
+      }
     }' > "$AFX_CONFIG_FILE"
 
   "$AFX_BINARY" check -c "$AFX_CONFIG_FILE" >/dev/null
@@ -501,8 +524,17 @@ net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 net.core.rmem_default = 16777216
 net.core.wmem_default = 16777216
-net.core.rmem_max = 16777216
-net.core.wmem_max = 16777216
+net.core.rmem_max = 67108864
+net.core.wmem_max = 67108864
+net.core.somaxconn = 8192
+net.core.netdev_max_backlog = 16384
+net.ipv4.tcp_rmem = 4096 87380 67108864
+net.ipv4.tcp_wmem = 4096 65536 67108864
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.udp_rmem_min = 8192
+net.ipv4.udp_wmem_min = 8192
 CONF
 }
 
@@ -557,8 +589,6 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=${AFX_ACCOUNT}
-Group=${AFX_ACCOUNT}
 WorkingDirectory=${AFX_STATE}
 RuntimeDirectory=${AFX_SERVICE}
 ExecStartPre=${AFX_BINARY} check -c ${AFX_CONFIG_FILE}
@@ -566,16 +596,11 @@ ExecStart=${AFX_BINARY} run -c ${AFX_CONFIG_FILE}
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=2
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 LimitNOFILE=infinity
+LimitNPROC=infinity
 TasksMax=infinity
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=full
-ProtectHome=read-only
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK AF_PACKET
-ReadWritePaths=${AFX_HOME} ${AFX_STATE} ${AFX_RUNTIME}
 
 [Install]
 WantedBy=multi-user.target
