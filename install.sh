@@ -209,6 +209,14 @@ normalize_port() {
   printf '%s' "$candidate"
 }
 
+configure_firewall_rules() {
+  if has ufw && ufw status 2>/dev/null | grep -q '^Status: active'; then
+    note "检测到 UFW 已启用，正在放行 AeroFlux 所需端口"
+    ufw allow "${AFX_REALITY_PORT}/tcp" >/dev/null
+    ufw allow "${AFX_HY2_PORT}/udp" >/dev/null
+  fi
+}
+
 public_host() {
   local ip4 ip6
   ip4=$(curl -4fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)
@@ -648,6 +656,7 @@ remove_aeroflux() {
 install_fresh() {
   require_root
   require_systemd
+  systemctl stop "$AFX_SERVICE" >/dev/null 2>&1 || true
   detect_architecture
   install_dependencies
   ensure_layout
@@ -671,6 +680,8 @@ install_fresh() {
     warn "检测到 443 已被占用，AeroFlux 将使用 REALITY ${AFX_REALITY_PORT}/tcp 与 Hysteria 2 ${AFX_HY2_PORT}/udp"
     warn "请同步放行云防火墙与系统防火墙中的上述端口，否则客户端会显示延迟 -1ms 或无法连通"
   fi
+
+  configure_firewall_rules
 
   [[ "$AFX_HY2_UP" =~ ^[0-9]+$ ]] || die "上行带宽必须是整数"
   [[ "$AFX_HY2_DOWN" =~ ^[0-9]+$ ]] || die "下行带宽必须是整数"
