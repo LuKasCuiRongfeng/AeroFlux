@@ -17,6 +17,8 @@ readonly AFX_SERVICE_FILE="/etc/systemd/system/${AFX_SERVICE}.service"
 readonly AFX_CONFIG_FILE="$AFX_HOME/node.json"
 readonly AFX_ENV_FILE="$AFX_HOME/runtime.env"
 readonly AFX_LINK_FILE="$AFX_HOME/share-links.txt"
+readonly AFX_HY2_CLIENT_HINT_FILE="$AFX_HOME/hy2-v2rayn-manual.txt"
+readonly AFX_HY2_CLIENT_JSON_FILE="$AFX_HOME/hy2-client-singbox.json"
 readonly AFX_CERT_FILE="$AFX_HOME/tls.crt"
 readonly AFX_KEY_FILE="$AFX_HOME/tls.key"
 readonly AFX_OPENSSL_FILE="$AFX_STATE/openssl.cnf"
@@ -602,10 +604,52 @@ Hysteria 2
 ${hy2_uri}
 EOF
 
-  chown root:"$AFX_ACCOUNT" "$AFX_LINK_FILE"
-  chmod 640 "$AFX_LINK_FILE"
+  cat > "$AFX_HY2_CLIENT_HINT_FILE" <<EOF
+v2rayN Hysteria2 Manual Fields
+==============================
+Address           : ${endpoint}
+Port              : ${AFX_HY2_PORT}
+Password          : ${AFX_HY2_SECRET}
+TLS               : tls
+SNI               : ${AFX_HY2_SNI}
+ALPN              : h3
+AllowInsecure     : true
+Up Mbps           : ${AFX_HY2_CLIENT_UP}
+Down Mbps         : ${AFX_HY2_CLIENT_DOWN}
+
+Note:
+- 某些 v2rayN 版本导入 hy2:// 链接时不会自动写入 Up/Down Mbps。
+- 如果导入后 Hysteria 最大流量（Up/Dw）为空，请按这里手动填写。
+EOF
+
+  cat > "$AFX_HY2_CLIENT_JSON_FILE" <<EOF
+{
+  "outbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "${label}-hy2",
+      "server": "${endpoint}",
+      "server_port": ${AFX_HY2_PORT},
+      "up_mbps": ${AFX_HY2_CLIENT_UP},
+      "down_mbps": ${AFX_HY2_CLIENT_DOWN},
+      "password": "${AFX_HY2_SECRET}",
+      "tls": {
+        "enabled": true,
+        "server_name": "${AFX_HY2_SNI}",
+        "insecure": true,
+        "alpn": ["h3"]
+      }
+    }
+  ]
+}
+EOF
+
+  chown root:"$AFX_ACCOUNT" "$AFX_LINK_FILE" "$AFX_HY2_CLIENT_HINT_FILE" "$AFX_HY2_CLIENT_JSON_FILE"
+  chmod 640 "$AFX_LINK_FILE" "$AFX_HY2_CLIENT_HINT_FILE" "$AFX_HY2_CLIENT_JSON_FILE"
 
   good "已生成订阅链接: ${AFX_LINK_FILE}"
+  note "已生成 Hysteria 2 手工参数: ${AFX_HY2_CLIENT_HINT_FILE}"
+  note "已生成 Hysteria 2 sing-box 客户端 JSON: ${AFX_HY2_CLIENT_JSON_FILE}"
   printf '\n%s\n\n%s\n\n' "$reality_uri" "$hy2_uri"
 }
 

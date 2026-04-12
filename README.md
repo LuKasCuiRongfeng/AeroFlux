@@ -102,6 +102,8 @@ sudo afx tune remove
 - `/etc/aeroflux/node.json`
 - `/etc/aeroflux/runtime.env`
 - `/etc/aeroflux/share-links.txt`
+- `/etc/aeroflux/hy2-v2rayn-manual.txt`
+- `/etc/aeroflux/hy2-client-singbox.json`
 - `/etc/aeroflux/tls.crt`
 - `/etc/aeroflux/tls.key`
 
@@ -110,7 +112,8 @@ sudo afx tune remove
 1. REALITY 稳态链路
 2. Hysteria 2 高吞吐链路
 
-其中 Hysteria 2 链接会自动写入客户端带宽参数，避免导入后退回保守默认值。
+其中 Hysteria 2 链接会附带客户端带宽参数，但部分 v2rayN 版本不会把 Up/Down Mbps 自动写入节点编辑页。
+如果导入后发现 Hysteria 最大流量为空，请直接按 `/etc/aeroflux/hy2-v2rayn-manual.txt` 手工填写，或者改用 `/etc/aeroflux/hy2-client-singbox.json` 作为客户端配置参考。
 
 推荐使用策略：
 
