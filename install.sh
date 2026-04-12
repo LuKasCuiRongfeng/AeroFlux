@@ -244,7 +244,7 @@ service_shell() {
 }
 
 ensure_layout() {
-  mkdir -p "$AFX_HOME" "$AFX_STATE" "$AFX_RUNTIME" "$AFX_LIB"
+  mkdir -p "$AFX_HOME" "$AFX_STATE" "$AFX_LIB"
   chmod 750 "$AFX_HOME"
   chmod 755 "$AFX_STATE" "$AFX_LIB"
 }
@@ -317,7 +317,7 @@ EOF
 lock_permissions() {
   chown -R root:"$AFX_ACCOUNT" "$AFX_HOME"
   chown -R root:root "$AFX_LIB"
-  chown -R "$AFX_ACCOUNT":"$AFX_ACCOUNT" "$AFX_STATE" "$AFX_RUNTIME"
+  chown -R "$AFX_ACCOUNT":"$AFX_ACCOUNT" "$AFX_STATE"
   chmod 750 "$AFX_HOME"
   chmod 755 "$AFX_LIB" "$AFX_CORE_DIR" "$AFX_STATE"
   chmod 640 "$AFX_CONFIG_FILE" "$AFX_ENV_FILE" "$AFX_CERT_FILE" "$AFX_KEY_FILE"
