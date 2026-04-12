@@ -28,6 +28,7 @@ readonly AFX_DEFAULT_REALITY_SERVER="www.cloudflare.com"
 readonly AFX_DEFAULT_HY2_SNI="www.bing.com"
 readonly AFX_DEFAULT_HY2_MODE="bbr"
 readonly AFX_DEFAULT_PERF_PROFILE="extreme"
+readonly AFX_DEFAULT_OUTBOUND_STRATEGY="prefer_ipv4"
 readonly AFX_DEFAULT_HY2_SERVER_UP="1000"
 readonly AFX_DEFAULT_HY2_SERVER_DOWN="1000"
 readonly AFX_DEFAULT_HY2_CLIENT_UP="1000"
@@ -37,6 +38,7 @@ AFX_ARCH=""
 AFX_RELEASE_JSON=""
 AFX_HY2_MODE=""
 AFX_PERF_PROFILE=""
+AFX_OUTBOUND_STRATEGY=""
 AFX_HY2_CLIENT_UP=""
 AFX_HY2_CLIENT_DOWN=""
 
@@ -101,6 +103,18 @@ normalize_perf_profile() {
       die "性能模式只支持 1/extreme 或 2/balanced"
       ;;
   esac
+}
+
+detect_outbound_strategy() {
+  if curl -4fsS --max-time 3 https://api.ipify.org >/dev/null 2>&1; then
+    printf 'prefer_ipv4'
+    return
+  fi
+  if curl -6fsS --max-time 3 https://api64.ipify.org >/dev/null 2>&1; then
+    printf 'prefer_ipv6'
+    return
+  fi
+  printf '%s' "$AFX_DEFAULT_OUTBOUND_STRATEGY"
 }
 
 json_number_or_null() {
@@ -425,6 +439,7 @@ AFX_HY2_PORT=${AFX_HY2_PORT}
 AFX_HY2_SECRET=${AFX_HY2_SECRET}
 AFX_HY2_MODE=${AFX_HY2_MODE}
 AFX_PERF_PROFILE=${AFX_PERF_PROFILE}
+AFX_OUTBOUND_STRATEGY=${AFX_OUTBOUND_STRATEGY}
 AFX_HY2_UP=${AFX_HY2_UP}
 AFX_HY2_DOWN=${AFX_HY2_DOWN}
 AFX_HY2_CLIENT_UP=${AFX_HY2_CLIENT_UP}
@@ -452,6 +467,7 @@ render_config() {
     --arg reality_short_id "$AFX_REALITY_SHORT_ID" \
     --arg hy2_secret "$AFX_HY2_SECRET" \
     --arg hy2_mode "$AFX_HY2_MODE" \
+    --arg outbound_strategy "$AFX_OUTBOUND_STRATEGY" \
     --arg cert_file "$AFX_CERT_FILE" \
     --arg key_file "$AFX_KEY_FILE" \
     --argjson reality_port "$AFX_REALITY_PORT" \
@@ -518,7 +534,8 @@ render_config() {
       outbounds: [
         {
           type: "direct",
-          tag: "direct"
+          tag: "direct",
+          domain_strategy: $outbound_strategy
         },
         {
           type: "block",
@@ -711,6 +728,7 @@ load_runtime_env() {
   # shellcheck disable=SC1090
   source "$AFX_ENV_FILE"
   AFX_PERF_PROFILE="${AFX_PERF_PROFILE:-$AFX_DEFAULT_PERF_PROFILE}"
+  AFX_OUTBOUND_STRATEGY="${AFX_OUTBOUND_STRATEGY:-$(detect_outbound_strategy)}"
   if [[ -z "${AFX_HY2_MODE:-}" ]]; then
     if [[ -n "${AFX_HY2_UP:-}" || -n "${AFX_HY2_DOWN:-}" || -n "${AFX_HY2_CLIENT_UP:-}" || -n "${AFX_HY2_CLIENT_DOWN:-}" ]]; then
       AFX_HY2_MODE="brutal"
@@ -859,6 +877,7 @@ status_report() {
     printf 'service user     : %s\n' "$AFX_ACCOUNT"
   fi
   printf 'perf profile     : %s\n' "$AFX_PERF_PROFILE"
+  printf 'egress strategy   : %s\n' "$AFX_OUTBOUND_STRATEGY"
   printf 'config file      : %s\n' "$AFX_CONFIG_FILE"
 }
 
@@ -960,6 +979,7 @@ install_fresh() {
   AFX_NODE_ID=$(cat /proc/sys/kernel/random/uuid)
   AFX_HY2_SECRET="$AFX_NODE_ID"
   AFX_ENDPOINT=$(public_host)
+  AFX_OUTBOUND_STRATEGY=$(detect_outbound_strategy)
 
   generate_tls_material "$AFX_ENDPOINT"
   generate_reality_keys
