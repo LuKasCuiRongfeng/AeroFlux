@@ -26,7 +26,6 @@ readonly AFX_OPENSSL_FILE="$AFX_STATE/openssl.cnf"
 readonly AFX_PERF_SYSCTL="/etc/sysctl.d/90-aeroflux-performance.conf"
 readonly AFX_DEFAULT_REALITY_SERVER="www.cloudflare.com"
 readonly AFX_DEFAULT_HY2_SNI="www.bing.com"
-readonly AFX_DEFAULT_MASQUERADE="https://www.cloudflare.com/"
 readonly AFX_DEFAULT_HY2_MODE="bbr"
 readonly AFX_DEFAULT_HY2_SERVER_UP="1000"
 readonly AFX_DEFAULT_HY2_SERVER_DOWN="1000"
@@ -380,7 +379,6 @@ render_config() {
     --arg hy2_mode "$AFX_HY2_MODE" \
     --arg cert_file "$AFX_CERT_FILE" \
     --arg key_file "$AFX_KEY_FILE" \
-    --arg mask_url "$AFX_DEFAULT_MASQUERADE" \
     --argjson reality_port "$AFX_REALITY_PORT" \
     --argjson hy2_port "$AFX_HY2_PORT" \
     --argjson hy2_up "$(json_number_or_null "$AFX_HY2_UP")" \
@@ -434,8 +432,7 @@ render_config() {
               alpn: ["h3"],
               certificate_path: $cert_file,
               key_path: $key_file
-            },
-            masquerade: $mask_url
+            }
           }
           + if $hy2_mode == "brutal" then {
               up_mbps: $hy2_up,

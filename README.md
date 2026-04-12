@@ -131,6 +131,7 @@ AeroFlux 默认按无域名部署设计：
 - REALITY 使用外部握手站点，不要求你持有域名
 - Hysteria 2 使用自签 TLS 材料
 - 生成的 Hysteria 2 链接自动附带 `insecure=1`
+- Hysteria 2 服务端默认保持极简入站，不额外挂 H3 masquerade，尽量贴近原仓库的基础行为
 
 这套设计的核心不是“伪装更多”，而是：
 
