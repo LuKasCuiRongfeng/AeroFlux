@@ -415,7 +415,7 @@ install_manager_plane() {
 
   cat > "$AFX_WRAPPER" <<EOF
 #!/usr/bin/env bash
-exec "$AFX_MANAGER" "\$@"
+exec bash "$AFX_MANAGER" "\$@"
 EOF
   chmod 755 "$AFX_WRAPPER"
 }
@@ -667,6 +667,11 @@ install_fresh() {
   AFX_HY2_UP=$(prompt_value "Hysteria 2 上行带宽上限 Mbps" "1500")
   AFX_HY2_DOWN=$(prompt_value "Hysteria 2 下行带宽上限 Mbps" "1500")
 
+  if [[ "$AFX_REALITY_PORT" != "443" || "$AFX_HY2_PORT" != "443" ]]; then
+    warn "检测到 443 已被占用，AeroFlux 将使用 REALITY ${AFX_REALITY_PORT}/tcp 与 Hysteria 2 ${AFX_HY2_PORT}/udp"
+    warn "请同步放行云防火墙与系统防火墙中的上述端口，否则客户端会显示延迟 -1ms 或无法连通"
+  fi
+
   [[ "$AFX_HY2_UP" =~ ^[0-9]+$ ]] || die "上行带宽必须是整数"
   [[ "$AFX_HY2_DOWN" =~ ^[0-9]+$ ]] || die "下行带宽必须是整数"
 
@@ -694,6 +699,7 @@ install_fresh() {
 
   render_links
   good "${AFX_NAME} 部署完成"
+  note "最终端口: REALITY ${AFX_REALITY_PORT}/tcp, Hysteria 2 ${AFX_HY2_PORT}/udp"
   note "建议在 v2rayN 中同时保留 REALITY 与 Hysteria 2，两条线路按实时表现切换。"
 }
 
