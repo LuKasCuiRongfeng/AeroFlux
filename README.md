@@ -1,61 +1,50 @@
 # AeroFlux
 
-AeroFlux 是一个面向自建 VPS 的首发项目，目标很单纯：
+AeroFlux 是一个围绕高性能自建链路重新设计的 VPS 项目，不是“多功能大杂烩脚本”的删减版，而是一套更专注的双入口部署平面：
 
-- 用最强的主流技术组合做出高性能自建节点
-- 安装后直接生成 v2rayN 可导入链接
-- 在没有域名的前提下也能稳定落地
+- 以 VLESS REALITY 作为稳态入口
+- 以 Hysteria 2 作为吞吐入口
+- 以 sing-box 作为最小核心
+- 以 systemd 硬化与性能档案作为运行底座
 
-当前技术栈：
+它的目标不是“协议越多越强”，而是把真正有价值的两条链路打磨到更高完成度。
 
-- sing-box 作为核心运行时
-- VLESS REALITY 作为稳定主线
-- Hysteria 2 作为高速主线
-- systemd 负责服务托管
-- BBR 与 UDP buffer tuning 负责链路调优
+## 新架构
 
-## 设计目标
+这一版 AeroFlux 的实现重点是：
 
-- 极简部署
-- 极致速度
-- 低维护成本
-- 面向 v2rayN 的直接使用体验
+- 独立的目录布局：配置、状态、核心、控制平面分离
+- 独立服务账号：不再默认以 root 常驻运行主进程
+- systemd 硬化：启动前校验配置，限制能力边界
+- release 资产拉取：直接从 sing-box 官方 release 获取最新内核
+- 运行信息持久化：通过 `runtime.env` 记录节点元数据
+- 独立性能档案：将 BBR 和 UDP 调优从安装逻辑中拆出
 
-## 当前能力
+当前目录布局：
 
-安装完成后自动生成两条链接：
+- `/etc/aeroflux` 保存配置与分享链接
+- `/var/lib/aeroflux` 保存运行时状态
+- `/usr/local/lib/aeroflux` 保存核心与控制平面
+- `/usr/local/bin/afx` 提供日常管理入口
 
-1. VLESS REALITY
-2. Hysteria 2
+## 技术栈
 
-推荐用法：
-
-- 日常使用优先 REALITY
-- 大流量、测速、流媒体优先 Hysteria 2
-- 在 v2rayN 中同时保留两条线路，按实时表现切换
-
-## 无域名方案
-
-AeroFlux 默认按无域名场景工作：
-
-- REALITY 直接使用外部握手站点，不要求你持有域名
-- Hysteria 2 默认使用自签证书
-- Hysteria 2 分享链接自动带 `insecure=1`
-
-这套组合的意义是：
-
-- REALITY 保证可用性与兼容性
-- Hysteria 2 负责把 UDP 和 QUIC 的速度优势吃满
+- sing-box 作为转发核心
+- VLESS REALITY 作为主稳态协议
+- Hysteria 2 作为主高速协议
+- 自签 TLS 作为无域名场景的 Hysteria 2 落地方案
+- systemd sandbox 作为服务托管层
+- BBR + UDP profile 作为基础性能增强层
 
 ## 安装
 
-在 VPS 上执行：
+在 VPS 上直接执行：
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/LuKasCuiRongfeng/AeroFlux/main/install.sh)
 ```
 
-如果你想先看代码再安装，也可以手动克隆后执行：
+如果你想先审阅代码再安装：
 
 ```bash
 git clone https://github.com/LuKasCuiRongfeng/AeroFlux.git
@@ -66,71 +55,92 @@ sudo ./install.sh
 
 安装过程会询问：
 
-- REALITY 握手站点，默认 `www.cloudflare.com`
-- REALITY TCP 端口，默认优先 `443`
-- Hysteria 2 UDP 端口，默认优先 `443`
-- Hysteria 2 上下行带宽上限，默认 `1000/1000 Mbps`
-- 是否应用 BBR 与 UDP 调优
+- 节点标签
+- REALITY 握手站点
+- REALITY TCP 端口
+- Hysteria 2 UDP 端口
+- Hysteria 2 上下行带宽上限
+- 是否立即应用性能档案
 
-## 文件布局
+## 管理方式
 
-安装完成后会生成：
-
-- `/etc/aeroflux/config.json`
-- `/etc/aeroflux/install.env`
-- `/etc/aeroflux/share-links.txt`
-- `/etc/aeroflux/cert.pem`
-- `/etc/aeroflux/key.pem`
-
-## 管理命令
+安装完成后，可以继续用仓库脚本管理，也可以直接使用控制命令：
 
 ```bash
-sudo ./install.sh
-sudo ./install.sh install
-sudo ./install.sh show-links
-sudo ./install.sh update
+sudo ./install.sh deploy
+sudo ./install.sh links
+sudo ./install.sh refresh
 sudo ./install.sh status
+sudo ./install.sh tune
 sudo ./install.sh uninstall
 ```
 
-如果通过仓库脚本安装，会额外生成快捷命令：
+或者：
 
 ```bash
-afx
+sudo afx
+sudo afx links
+sudo afx refresh
+sudo afx status
+sudo afx tune
+sudo afx uninstall
 ```
 
-## v2rayN 使用
-
-安装完成后，脚本会直接打印两条链接，并保存到：
+性能档案支持独立操作：
 
 ```bash
-/etc/aeroflux/share-links.txt
+sudo afx tune apply
+sudo afx tune status
+sudo afx tune remove
 ```
 
-在 v2rayN 里：
+## 输出结果
 
-1. 复制链接
-2. 从剪贴板导入
-3. 分别测速
-4. 保留两条线路，按实时表现切换
+安装完成后会生成：
 
-## 性能建议
+- `/etc/aeroflux/node.json`
+- `/etc/aeroflux/runtime.env`
+- `/etc/aeroflux/share-links.txt`
+- `/etc/aeroflux/tls.crt`
+- `/etc/aeroflux/tls.key`
 
-协议只是上限的一部分，真实速度还取决于机房、线路、运营商 QoS 和系统参数。
+脚本会直接打印两条 v2rayN 可导入链接：
 
-建议：
+1. REALITY 稳态链路
+2. Hysteria 2 高吞吐链路
+
+推荐使用策略：
+
+- 日常主用 REALITY
+- 压测、测速、大流量优先 Hysteria 2
+- 两条链路同时保留，按实时网络表现切换
+
+## 无域名策略
+
+AeroFlux 默认按无域名部署设计：
+
+- REALITY 使用外部握手站点，不要求你持有域名
+- Hysteria 2 使用自签 TLS 材料
+- 生成的 Hysteria 2 链接自动附带 `insecure=1`
+
+这套设计的核心不是“伪装更多”，而是：
+
+- 用 REALITY 负责兼容性和可用性
+- 用 Hysteria 2 负责把 QUIC/UDP 的吞吐能力吃满
+
+## 运行建议
 
 - 优先 Ubuntu 22.04 或 24.04
-- 放行 REALITY 的 TCP 端口与 Hysteria 2 的 UDP 端口
-- 保持系统尽量干净，不混跑无关服务
-- 优先选择跨境链路表现更好的机房
-- 安装时开启 BBR 与 UDP 调优
+- 只在干净 VPS 上部署，不混跑重服务
+- 明确放行 REALITY 对应 TCP 端口与 Hysteria 2 对应 UDP 端口
+- 优先选择跨境链路质量更高的机房
+- 在内核支持的前提下开启性能档案
 
 ## 路线
 
-AeroFlux 后续只围绕四件事演进：
+AeroFlux 后续的迭代方向只围绕下面几件事：
 
-- 更新 sing-box 内核
-- 优化 REALITY 与 Hysteria 2 的默认配置
-- 提升 v2rayN 导入体验
-- 持续打磨 VPS 侧调优与运维体验
+- 提升 REALITY 默认参数的稳态表现
+- 提升 Hysteria 2 在高带宽场景下的吞吐效率
+- 继续强化控制平面、配置校验和系统硬化
+- 优化 v2rayN 与桌面客户端导入体验

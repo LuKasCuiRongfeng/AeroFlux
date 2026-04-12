@@ -1,169 +1,214 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_NAME="AeroFlux"
-SERVICE_NAME="aeroflux"
-INSTALL_DIR="/etc/aeroflux"
-CONFIG_FILE="$INSTALL_DIR/config.json"
-META_FILE="$INSTALL_DIR/install.env"
-LINKS_FILE="$INSTALL_DIR/share-links.txt"
-CERT_FILE="$INSTALL_DIR/cert.pem"
-KEY_FILE="$INSTALL_DIR/key.pem"
-OPENSSL_FILE="$INSTALL_DIR/openssl.cnf"
-SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-BIN_PATH="/usr/local/bin/sing-box"
-SHORTCUT_PATH="/usr/local/bin/afx"
-TUNE_SCRIPT_PATH="/usr/local/lib/${SERVICE_NAME}/system-tune.sh"
-REPO_TUNE_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/system-tune.sh"
-DEFAULT_REALITY_SERVER="www.cloudflare.com"
-DEFAULT_HY2_SNI="www.bing.com"
+readonly AFX_NAME="AeroFlux"
+readonly AFX_SERVICE="aeroflux"
+readonly AFX_ACCOUNT="aeroflux"
+readonly AFX_HOME="/etc/aeroflux"
+readonly AFX_STATE="/var/lib/aeroflux"
+readonly AFX_RUNTIME="/run/aeroflux"
+readonly AFX_LIB="/usr/local/lib/aeroflux"
+readonly AFX_CORE_DIR="$AFX_LIB/core"
+readonly AFX_BINARY="$AFX_CORE_DIR/sing-box"
+readonly AFX_MANAGER="$AFX_LIB/manager.sh"
+readonly AFX_WRAPPER="/usr/local/bin/afx"
+readonly AFX_TUNE_SCRIPT="$AFX_LIB/system-tune.sh"
+readonly AFX_SERVICE_FILE="/etc/systemd/system/${AFX_SERVICE}.service"
+readonly AFX_CONFIG_FILE="$AFX_HOME/node.json"
+readonly AFX_ENV_FILE="$AFX_HOME/runtime.env"
+readonly AFX_LINK_FILE="$AFX_HOME/share-links.txt"
+readonly AFX_CERT_FILE="$AFX_HOME/tls.crt"
+readonly AFX_KEY_FILE="$AFX_HOME/tls.key"
+readonly AFX_OPENSSL_FILE="$AFX_STATE/openssl.cnf"
+readonly AFX_PERF_SYSCTL="/etc/sysctl.d/90-aeroflux-performance.conf"
+readonly AFX_DEFAULT_REALITY_SERVER="www.cloudflare.com"
+readonly AFX_DEFAULT_HY2_SNI="www.bing.com"
+readonly AFX_DEFAULT_MASQUERADE="https://www.cloudflare.com/"
 
-red() { printf '\033[31;1m%s\033[0m\n' "$1"; }
-green() { printf '\033[32;1m%s\033[0m\n' "$1"; }
-yellow() { printf '\033[33;1m%s\033[0m\n' "$1"; }
-blue() { printf '\033[36;1m%s\033[0m\n' "$1"; }
+AFX_ARCH=""
+AFX_RELEASE_JSON=""
 
-prompt() {
-  local message="$1"
-  local default_value="${2-}"
-  local answer
-  if [[ -n "$default_value" ]]; then
-    read -r -p "$message [$default_value]: " answer
-    printf '%s' "${answer:-$default_value}"
+paint() {
+  local color="$1"
+  shift
+  printf '\033[%sm%s\033[0m\n' "$color" "$*"
+}
+
+note() { paint '36;1' "$*"; }
+good() { paint '32;1' "$*"; }
+warn() { paint '33;1' "$*"; }
+fail() { paint '31;1' "$*" >&2; }
+
+die() {
+  fail "$*"
+  exit 1
+}
+
+has() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+prompt_value() {
+  local label="$1"
+  local fallback="${2-}"
+  local reply
+  if [[ -n "$fallback" ]]; then
+    read -r -p "$label [$fallback]: " reply
+    printf '%s' "${reply:-$fallback}"
   else
-    read -r -p "$message: " answer
-    printf '%s' "$answer"
+    read -r -p "$label: " reply
+    printf '%s' "$reply"
   fi
 }
 
 require_root() {
-  if [[ ${EUID} -ne 0 ]]; then
-    red "请使用 root 运行脚本"
-    exit 1
-  fi
+  [[ ${EUID} -eq 0 ]] || die "请使用 root 执行 ${AFX_NAME} 安装器"
 }
 
 require_systemd() {
-  if ! command -v systemctl >/dev/null 2>&1; then
-    red "当前系统未检测到 systemd，本脚本只支持 systemd 服务器"
-    exit 1
-  fi
+  has systemctl || die "当前系统未检测到 systemd，${AFX_NAME} 只支持 systemd 场景"
 }
 
-command_exists() {
-  command -v "$1" >/dev/null 2>&1
-}
-
-detect_arch() {
+detect_architecture() {
   case "$(uname -m)" in
-    x86_64) ARCH="amd64" ;;
-    aarch64|arm64) ARCH="arm64" ;;
-    armv7l) ARCH="armv7" ;;
-    *)
-      red "暂不支持的架构: $(uname -m)"
-      exit 1
-      ;;
+    x86_64) AFX_ARCH="amd64" ;;
+    aarch64|arm64) AFX_ARCH="arm64" ;;
+    armv7l) AFX_ARCH="armv7" ;;
+    *) die "暂不支持的架构: $(uname -m)" ;;
   esac
 }
 
-install_packages() {
-  local packages_debian=(ca-certificates curl wget jq openssl tar iproute2 qrencode)
-  local packages_rhel=(ca-certificates curl wget jq openssl tar iproute qrencode)
-  local packages_alpine=(ca-certificates curl wget jq openssl tar iproute2 qrencode coreutils)
+install_dependencies() {
+  local debian_packages=(ca-certificates curl jq openssl tar iproute2 coreutils)
+  local redhat_packages=(ca-certificates curl jq openssl tar iproute coreutils)
+  local alpine_packages=(ca-certificates curl jq openssl tar iproute2 coreutils)
 
-  if command_exists apt-get; then
+  if has apt-get; then
     apt-get update -y
-    DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages_debian[@]}"
-  elif command_exists dnf; then
-    dnf install -y epel-release || true
-    dnf install -y "${packages_rhel[@]}"
-  elif command_exists yum; then
-    yum install -y epel-release || true
-    yum install -y "${packages_rhel[@]}"
-  elif command_exists apk; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${debian_packages[@]}"
+    return
+  fi
+
+  if has dnf; then
+    dnf install -y epel-release >/dev/null 2>&1 || true
+    dnf install -y "${redhat_packages[@]}"
+    return
+  fi
+
+  if has yum; then
+    yum install -y epel-release >/dev/null 2>&1 || true
+    yum install -y "${redhat_packages[@]}"
+    return
+  fi
+
+  if has apk; then
     apk update
-    apk add "${packages_alpine[@]}"
-  else
-    red "无法识别包管理器，请手动安装 curl wget jq openssl tar iproute2 qrencode"
-    exit 1
+    apk add "${alpine_packages[@]}"
+    return
+  fi
+
+  die "无法识别包管理器，请手动安装 curl jq openssl tar iproute2 coreutils"
+}
+
+load_release_catalog() {
+  if [[ -z "$AFX_RELEASE_JSON" ]]; then
+    AFX_RELEASE_JSON=$(curl -fsSL https://api.github.com/repos/SagerNet/sing-box/releases/latest)
   fi
 }
 
-latest_sing_box_version() {
-  local version
-  version=$(curl -fsSL https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r '.tag_name' | sed 's/^v//') || true
-  if [[ -z "$version" || "$version" == "null" ]]; then
-    version=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/SagerNet/sing-box/releases/latest | sed 's#.*/tag/v##')
-  fi
-  if [[ -z "$version" ]]; then
-    red "无法获取 sing-box 最新版本"
-    exit 1
-  fi
-  printf '%s' "$version"
+latest_core_version() {
+  load_release_catalog
+  jq -r '.tag_name' <<<"$AFX_RELEASE_JSON" | sed 's/^v//'
 }
 
-download_sing_box() {
+release_asset_url() {
+  local asset_name="$1"
+  load_release_catalog
+  jq -r --arg asset_name "$asset_name" '.assets[] | select(.name == $asset_name) | .browser_download_url' <<<"$AFX_RELEASE_JSON" | head -n 1
+}
+
+download_core_binary() {
   local version="$1"
-  local archive_name="sing-box-${version}-linux-${ARCH}"
-  local url="https://github.com/SagerNet/sing-box/releases/download/v${version}/${archive_name}.tar.gz"
-  local temp_dir
-  temp_dir=$(mktemp -d)
+  local archive_name="sing-box-${version}-linux-${AFX_ARCH}.tar.gz"
+  local archive_url checksum_url workdir expected_checksum
+  workdir=$(mktemp -d)
+  archive_url=$(release_asset_url "$archive_name")
+  checksum_url=$(release_asset_url "${archive_name}.sha256sum")
 
-  mkdir -p "$INSTALL_DIR"
-  blue "下载 sing-box ${version} ..."
-  curl -fsSL "$url" -o "$temp_dir/sing-box.tar.gz"
-  tar -xzf "$temp_dir/sing-box.tar.gz" -C "$temp_dir"
-  install -m 755 "$temp_dir/${archive_name}/sing-box" "$BIN_PATH"
-  rm -rf "$temp_dir"
+  [[ -n "$archive_url" ]] || die "无法在 release 资产中找到 ${archive_name}"
+
+  note "拉取 sing-box ${version} (${AFX_ARCH})"
+  curl -fsSL "$archive_url" -o "$workdir/core.tar.gz"
+
+  if [[ -n "$checksum_url" ]]; then
+    curl -fsSL "$checksum_url" -o "$workdir/core.tar.gz.sha256sum"
+    expected_checksum=$(awk '{print $1}' "$workdir/core.tar.gz.sha256sum")
+    printf '%s  %s\n' "$expected_checksum" "$workdir/core.tar.gz" | sha256sum -c - >/dev/null
+  else
+    warn "未找到官方 sha256 校验文件，跳过校验"
+  fi
+
+  rm -rf "$AFX_CORE_DIR"
+  mkdir -p "$AFX_CORE_DIR"
+  tar -xzf "$workdir/core.tar.gz" -C "$workdir"
+  install -m 755 "$workdir/sing-box-${version}-linux-${AFX_ARCH}/sing-box" "$AFX_BINARY"
+  rm -rf "$workdir"
 }
 
-random_port() {
-  local protocol="$1"
-  local port
-  while true; do
-    port=$(shuf -i 20000-60000 -n 1)
-    if ! list_listening_ports "$protocol" | grep -Eq "(^|:)$port$"; then
-      printf '%s' "$port"
-      return
-    fi
-  done
-}
-
-list_listening_ports() {
-  local protocol="$1"
-  if [[ "$protocol" == "tcp" ]]; then
+list_ports() {
+  local proto="$1"
+  if [[ "$proto" == "tcp" ]]; then
     ss -H -ltn | awk '{print $4}'
   else
     ss -H -lun | awk '{print $4}'
   fi
 }
 
-port_in_use() {
-  local protocol="$1"
+port_busy() {
+  local proto="$1"
   local port="$2"
-  list_listening_ports "$protocol" | grep -Eq "(^|:)$port$"
+  list_ports "$proto" | grep -Eq "(^|:)$port$"
+}
+
+random_port() {
+  local proto="$1"
+  local candidate
+  while true; do
+    candidate=$(shuf -i 20000-60999 -n 1)
+    if ! port_busy "$proto" "$candidate"; then
+      printf '%s' "$candidate"
+      return
+    fi
+  done
+}
+
+preferred_port() {
+  local proto="$1"
+  if port_busy "$proto" 443; then
+    random_port "$proto"
+  else
+    printf '443'
+  fi
 }
 
 normalize_port() {
   local candidate="$1"
-  local protocol="$2"
+  local proto="$2"
   if [[ -z "$candidate" ]]; then
-    printf '%s' "$(random_port "$protocol")"
+    random_port "$proto"
     return
   fi
-  if [[ ! "$candidate" =~ ^[0-9]+$ ]] || (( candidate < 1 || candidate > 65535 )); then
-    red "端口无效: $candidate"
-    exit 1
-  fi
-  if port_in_use "$protocol" "$candidate"; then
-    yellow "端口 $candidate/$protocol 已被占用，自动改用随机端口"
-    printf '%s' "$(random_port "$protocol")"
+  [[ "$candidate" =~ ^[0-9]+$ ]] || die "端口必须是数字: $candidate"
+  (( candidate >= 1 && candidate <= 65535 )) || die "端口超出范围: $candidate"
+  if port_busy "$proto" "$candidate"; then
+    warn "端口 $candidate/$proto 已占用，自动改用随机端口"
+    random_port "$proto"
     return
   fi
   printf '%s' "$candidate"
 }
 
-get_public_ip() {
+public_host() {
   local ip4 ip6
   ip4=$(curl -4fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)
   if [[ -n "$ip4" ]]; then
@@ -175,11 +220,10 @@ get_public_ip() {
     printf '%s' "$ip6"
     return
   fi
-  red "无法获取 VPS 公网 IP"
-  exit 1
+  die "无法获取公网 IP"
 }
 
-format_host_for_uri() {
+uri_host() {
   local host="$1"
   if [[ "$host" == *:* ]]; then
     printf '[%s]' "$host"
@@ -188,380 +232,497 @@ format_host_for_uri() {
   fi
 }
 
-generate_self_signed_cert() {
-  local server_ip="$1"
-  cat > "$OPENSSL_FILE" <<EOF
-[req]
-default_bits = 2048
-prompt = no
-default_md = sha256
-x509_extensions = v3_req
-distinguished_name = dn
-
-[dn]
-CN = ${DEFAULT_HY2_SNI}
-
-[v3_req]
-subjectAltName = @alt_names
-extendedKeyUsage = serverAuth
-
-[alt_names]
-DNS.1 = ${DEFAULT_HY2_SNI}
-IP.1 = ${server_ip}
-EOF
-
-  openssl ecparam -genkey -name prime256v1 -out "$KEY_FILE"
-  openssl req -new -x509 -days 3650 -key "$KEY_FILE" -out "$CERT_FILE" -config "$OPENSSL_FILE"
-}
-
-generate_reality_keypair() {
-  local output
-  output=$("$BIN_PATH" generate reality-keypair)
-  REALITY_PRIVATE_KEY=$(printf '%s\n' "$output" | awk '/PrivateKey:/ {print $2}')
-  REALITY_PUBLIC_KEY=$(printf '%s\n' "$output" | awk '/PublicKey:/ {print $2}')
-  if [[ -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_PUBLIC_KEY" ]]; then
-    red "REALITY 密钥生成失败"
-    exit 1
+service_shell() {
+  if [[ -x /usr/sbin/nologin ]]; then
+    printf '/usr/sbin/nologin'
+  elif [[ -x /sbin/nologin ]]; then
+    printf '/sbin/nologin'
+  else
+    printf '/bin/false'
   fi
 }
 
-generate_short_id() {
-  REALITY_SHORT_ID=$(openssl rand -hex 4)
+ensure_layout() {
+  mkdir -p "$AFX_HOME" "$AFX_STATE" "$AFX_RUNTIME" "$AFX_LIB"
+  chmod 750 "$AFX_HOME" "$AFX_STATE" "$AFX_LIB"
 }
 
-generate_config() {
-  cat > "$CONFIG_FILE" <<EOF
-{
-  "log": {
-    "level": "warn",
-    "timestamp": true
-  },
-  "inbounds": [
-    {
-      "type": "vless",
-      "tag": "reality-in",
-      "listen": "::",
-      "listen_port": ${REALITY_PORT},
-      "users": [
-        {
-          "name": "primary",
-          "uuid": "${UUID}",
-          "flow": "xtls-rprx-vision"
-        }
-      ],
-      "tls": {
-        "enabled": true,
-        "server_name": "${REALITY_SERVER}",
-        "reality": {
-          "enabled": true,
-          "handshake": {
-            "server": "${REALITY_SERVER}",
-            "server_port": 443
-          },
-          "private_key": "${REALITY_PRIVATE_KEY}",
-          "short_id": [
-            "${REALITY_SHORT_ID}"
-          ]
-        }
-      }
-    },
-    {
-      "type": "hysteria2",
-      "tag": "hy2-in",
-      "listen": "::",
-      "listen_port": ${HY2_PORT},
-      "up_mbps": ${HY2_UP_MBPS},
-      "down_mbps": ${HY2_DOWN_MBPS},
-      "users": [
-        {
-          "name": "primary",
-          "password": "${HY2_PASSWORD}"
-        }
-      ],
-      "tls": {
-        "enabled": true,
-        "alpn": [
-          "h3"
-        ],
-        "certificate_path": "${CERT_FILE}",
-        "key_path": "${KEY_FILE}"
+ensure_service_account() {
+  if ! id -u "$AFX_ACCOUNT" >/dev/null 2>&1; then
+    useradd --system --home-dir "$AFX_STATE" --shell "$(service_shell)" "$AFX_ACCOUNT"
+  fi
+}
+
+sanitize_label() {
+  local raw="$1"
+  raw=${raw// /-}
+  raw=${raw//[^a-zA-Z0-9._-]/-}
+  printf '%s' "$raw"
+}
+
+generate_tls_material() {
+  local endpoint="$1"
+  cat > "$AFX_OPENSSL_FILE" <<EOF
+[req]
+prompt = no
+distinguished_name = dn
+x509_extensions = ext
+
+[dn]
+CN = ${AFX_DEFAULT_HY2_SNI}
+
+[ext]
+subjectAltName = @san
+extendedKeyUsage = serverAuth
+
+[san]
+DNS.1 = ${AFX_DEFAULT_HY2_SNI}
+IP.1 = ${endpoint}
+EOF
+
+  openssl ecparam -genkey -name prime256v1 -out "$AFX_KEY_FILE"
+  openssl req -new -x509 -days 3650 -key "$AFX_KEY_FILE" -out "$AFX_CERT_FILE" -config "$AFX_OPENSSL_FILE"
+}
+
+generate_reality_keys() {
+  local output
+  output=$("$AFX_BINARY" generate reality-keypair)
+  AFX_REALITY_PRIVATE=$(awk '/PrivateKey:/ {print $2}' <<<"$output")
+  AFX_REALITY_PUBLIC=$(awk '/PublicKey:/ {print $2}' <<<"$output")
+  AFX_REALITY_SHORT_ID=$(openssl rand -hex 4)
+  [[ -n "$AFX_REALITY_PRIVATE" && -n "$AFX_REALITY_PUBLIC" ]] || die "REALITY 密钥生成失败"
+}
+
+write_runtime_env() {
+  cat > "$AFX_ENV_FILE" <<EOF
+AFX_CORE_VERSION=${AFX_CORE_VERSION}
+AFX_NODE_LABEL=${AFX_NODE_LABEL}
+AFX_NODE_ID=${AFX_NODE_ID}
+AFX_REALITY_SERVER=${AFX_REALITY_SERVER}
+AFX_REALITY_PORT=${AFX_REALITY_PORT}
+AFX_REALITY_PUBLIC=${AFX_REALITY_PUBLIC}
+AFX_REALITY_PRIVATE=${AFX_REALITY_PRIVATE}
+AFX_REALITY_SHORT_ID=${AFX_REALITY_SHORT_ID}
+AFX_HY2_PORT=${AFX_HY2_PORT}
+AFX_HY2_SECRET=${AFX_HY2_SECRET}
+AFX_HY2_UP=${AFX_HY2_UP}
+AFX_HY2_DOWN=${AFX_HY2_DOWN}
+AFX_HY2_SNI=${AFX_DEFAULT_HY2_SNI}
+AFX_ENDPOINT=${AFX_ENDPOINT}
+EOF
+}
+
+lock_permissions() {
+  chown -R root:"$AFX_ACCOUNT" "$AFX_HOME" "$AFX_STATE"
+  chmod 640 "$AFX_CONFIG_FILE" "$AFX_ENV_FILE" "$AFX_CERT_FILE" "$AFX_KEY_FILE"
+  chmod 640 "$AFX_LINK_FILE" 2>/dev/null || true
+}
+
+render_config() {
+  jq -n \
+    --arg node_id "$AFX_NODE_ID" \
+    --arg reality_server "$AFX_REALITY_SERVER" \
+    --arg reality_private "$AFX_REALITY_PRIVATE" \
+    --arg reality_short_id "$AFX_REALITY_SHORT_ID" \
+    --arg hy2_secret "$AFX_HY2_SECRET" \
+    --arg cert_file "$AFX_CERT_FILE" \
+    --arg key_file "$AFX_KEY_FILE" \
+    --arg mask_url "$AFX_DEFAULT_MASQUERADE" \
+    --argjson reality_port "$AFX_REALITY_PORT" \
+    --argjson hy2_port "$AFX_HY2_PORT" \
+    --argjson hy2_up "$AFX_HY2_UP" \
+    --argjson hy2_down "$AFX_HY2_DOWN" \
+    '{
+      log: {
+        level: "warn",
+        timestamp: true
       },
-      "masquerade": "https://www.bing.com"
-    }
-  ],
-  "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    },
-    {
-      "type": "block",
-      "tag": "block"
-    }
-  ]
-}
-EOF
+      inbounds: [
+        {
+          type: "vless",
+          tag: "edge-reality",
+          listen: "::",
+          listen_port: $reality_port,
+          users: [
+            {
+              name: "primary",
+              uuid: $node_id,
+              flow: "xtls-rprx-vision"
+            }
+          ],
+          tls: {
+            enabled: true,
+            server_name: $reality_server,
+            reality: {
+              enabled: true,
+              handshake: {
+                server: $reality_server,
+                server_port: 443
+              },
+              private_key: $reality_private,
+              short_id: [$reality_short_id]
+            }
+          }
+        },
+        {
+          type: "hysteria2",
+          tag: "edge-hy2",
+          listen: "::",
+          listen_port: $hy2_port,
+          up_mbps: $hy2_up,
+          down_mbps: $hy2_down,
+          users: [
+            {
+              name: "primary",
+              password: $hy2_secret
+            }
+          ],
+          tls: {
+            enabled: true,
+            alpn: ["h3"],
+            certificate_path: $cert_file,
+            key_path: $key_file
+          },
+          masquerade: $mask_url
+        }
+      ],
+      outbounds: [
+        {
+          type: "direct",
+          tag: "direct"
+        },
+        {
+          type: "block",
+          tag: "block"
+        }
+      ]
+    }' > "$AFX_CONFIG_FILE"
+
+  "$AFX_BINARY" check -c "$AFX_CONFIG_FILE" >/dev/null
 }
 
-write_meta() {
-  cat > "$META_FILE" <<EOF
-REALITY_PORT=${REALITY_PORT}
-REALITY_SERVER=${REALITY_SERVER}
-REALITY_PUBLIC_KEY=${REALITY_PUBLIC_KEY}
-REALITY_SHORT_ID=${REALITY_SHORT_ID}
-UUID=${UUID}
-HY2_PORT=${HY2_PORT}
-HY2_PASSWORD=${HY2_PASSWORD}
-HY2_UP_MBPS=${HY2_UP_MBPS}
-HY2_DOWN_MBPS=${HY2_DOWN_MBPS}
-HY2_SNI=${DEFAULT_HY2_SNI}
-INSTALLED_VERSION=${INSTALLED_VERSION}
+install_manager_plane() {
+  mkdir -p "$AFX_LIB"
+  if [[ -r "${BASH_SOURCE[0]}" ]]; then
+    install -m 755 "${BASH_SOURCE[0]}" "$AFX_MANAGER"
+  fi
+
+  cat > "$AFX_WRAPPER" <<EOF
+#!/usr/bin/env bash
+exec "$AFX_MANAGER" "\$@"
 EOF
+  chmod 755 "$AFX_WRAPPER"
 }
 
-install_systemd_service() {
-  cat > "$SERVICE_FILE" <<EOF
+install_tune_plane() {
+  local repo_tune
+  repo_tune="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/system-tune.sh"
+  if [[ -f "$repo_tune" ]]; then
+    install -m 755 "$repo_tune" "$AFX_TUNE_SCRIPT"
+    return
+  fi
+
+  cat > "$AFX_TUNE_SCRIPT" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly AFX_SYSCTL_FILE="/etc/sysctl.d/90-aeroflux-performance.conf"
+
+die() {
+  printf '\033[31;1m%s\033[0m\n' "$*" >&2
+  exit 1
+}
+
+note() {
+  printf '\033[36;1m%s\033[0m\n' "$*"
+}
+
+require_root() {
+  [[ ${EUID} -eq 0 ]] || die "请使用 root 运行性能调优脚本"
+}
+
+write_profile() {
+  cat > "$AFX_SYSCTL_FILE" <<'CONF'
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.core.somaxconn = 4096
+net.core.netdev_max_backlog = 16384
+net.core.rmem_default = 8388608
+net.core.wmem_default = 8388608
+net.core.rmem_max = 33554432
+net.core.wmem_max = 33554432
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.udp_rmem_min = 16384
+net.ipv4.udp_wmem_min = 16384
+net.ipv4.udp_mem = 65536 131072 262144
+CONF
+}
+
+apply_profile() {
+  require_root
+  write_profile
+  modprobe tcp_bbr >/dev/null 2>&1 || true
+  sysctl --system >/dev/null
+  note "AeroFlux performance profile 已应用"
+  show_status
+}
+
+show_status() {
+  require_root
+  if [[ -f "$AFX_SYSCTL_FILE" ]]; then
+    note "当前性能档案: $AFX_SYSCTL_FILE"
+  else
+    note "当前未应用 AeroFlux 专用性能档案"
+  fi
+  sysctl net.ipv4.tcp_congestion_control
+  sysctl net.core.default_qdisc
+  sysctl net.core.rmem_max
+  sysctl net.core.wmem_max
+  sysctl net.core.netdev_max_backlog
+}
+
+remove_profile() {
+  require_root
+  rm -f "$AFX_SYSCTL_FILE"
+  sysctl --system >/dev/null 2>&1 || true
+  note "AeroFlux performance profile 已移除"
+}
+
+case "${1-apply}" in
+  apply) apply_profile ;;
+  status|inspect) show_status ;;
+  remove|reset) remove_profile ;;
+  *) die "可用参数: apply | status | remove" ;;
+esac
+EOF
+  chmod 755 "$AFX_TUNE_SCRIPT"
+}
+
+install_service_unit() {
+  cat > "$AFX_SERVICE_FILE" <<EOF
 [Unit]
-Description=${PROJECT_NAME} dual protocol proxy service
-Documentation=https://sing-box.sagernet.org/
+Description=${AFX_NAME} edge runtime
+Documentation=https://github.com/LuKasCuiRongfeng/AeroFlux
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=${INSTALL_DIR}
-ExecStart=${BIN_PATH} run -c ${CONFIG_FILE}
+User=${AFX_ACCOUNT}
+Group=${AFX_ACCOUNT}
+WorkingDirectory=${AFX_STATE}
+RuntimeDirectory=${AFX_SERVICE}
+ExecStartPre=${AFX_BINARY} check -c ${AFX_CONFIG_FILE}
+ExecStart=${AFX_BINARY} run -c ${AFX_CONFIG_FILE}
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
-RestartSec=3
-LimitNOFILE=1048576
-AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN CAP_NET_RAW
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_ADMIN CAP_NET_RAW
+RestartSec=2
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=true
+SystemCallArchitectures=native
+ReadWritePaths=${AFX_HOME} ${AFX_STATE} ${AFX_RUNTIME}
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
   systemctl daemon-reload
-  systemctl enable "$SERVICE_NAME" >/dev/null
-  systemctl restart "$SERVICE_NAME"
+  systemctl enable "$AFX_SERVICE" >/dev/null
+  systemctl restart "$AFX_SERVICE"
 }
 
-write_installed_tune_script() {
-  mkdir -p "$(dirname "$TUNE_SCRIPT_PATH")"
-  if [[ -f "$REPO_TUNE_SCRIPT" ]]; then
-    install -m 755 "$REPO_TUNE_SCRIPT" "$TUNE_SCRIPT_PATH"
-    return
-  fi
-  cat > "$TUNE_SCRIPT_PATH" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-SYSCTL_FILE="/etc/sysctl.d/99-aeroflux.conf"
-if [[ ${EUID} -ne 0 ]]; then
-  echo "please run as root" >&2
-  exit 1
-fi
-cat > "$SYSCTL_FILE" <<CONF
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-net.core.rmem_max = 26214400
-net.core.wmem_max = 26214400
-net.core.rmem_default = 8388608
-net.core.wmem_default = 8388608
-net.core.netdev_max_backlog = 8192
-net.ipv4.udp_mem = 65536 131072 262144
-net.ipv4.udp_rmem_min = 16384
-net.ipv4.udp_wmem_min = 16384
-CONF
-modprobe tcp_bbr >/dev/null 2>&1 || true
-sysctl --system >/dev/null
-sysctl net.ipv4.tcp_congestion_control net.core.default_qdisc net.core.rmem_max net.core.wmem_max
-EOF
-  chmod 755 "$TUNE_SCRIPT_PATH"
-}
-
-install_shortcut() {
-  if [[ -f "${BASH_SOURCE[0]}" ]]; then
-    install -m 755 "${BASH_SOURCE[0]}" "$SHORTCUT_PATH"
-  fi
-}
-
-apply_tuning() {
-  write_installed_tune_script
-  if [[ "${ENABLE_TUNING}" == "y" ]]; then
-    blue "应用内核与 UDP 调优..."
-    "$TUNE_SCRIPT_PATH"
-  fi
-}
-
-build_links() {
-  if [[ ! -f "$META_FILE" ]]; then
-    red "未找到安装信息，请先执行安装"
-    exit 1
-  fi
+load_runtime_env() {
+  [[ -f "$AFX_ENV_FILE" ]] || die "未发现 ${AFX_NAME} 运行信息，请先安装"
   # shellcheck disable=SC1090
-  source "$META_FILE"
+  source "$AFX_ENV_FILE"
+}
 
-  local server_ip server_host reality_link hy2_link
-  server_ip=$(get_public_ip)
-  server_host=$(format_host_for_uri "$server_ip")
-  reality_link="vless://${UUID}@${server_host}:${REALITY_PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${REALITY_SERVER}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp&headerType=none#AeroFlux-REALITY"
-  hy2_link="hy2://${HY2_PASSWORD}@${server_host}:${HY2_PORT}/?sni=${HY2_SNI}&insecure=1&alpn=h3#AeroFlux-HYSTERIA2"
+render_links() {
+  load_runtime_env
 
-  cat > "$LINKS_FILE" <<EOF
-+--------------------------------------------------+
-| ${PROJECT_NAME} share links                      |
-+--------------------------------------------------+
+  local endpoint formatted_host reality_uri hy2_uri label
+  endpoint=$(public_host)
+  formatted_host=$(uri_host "$endpoint")
+  label=$(sanitize_label "$AFX_NODE_LABEL")
+
+  reality_uri="vless://${AFX_NODE_ID}@${formatted_host}:${AFX_REALITY_PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${AFX_REALITY_SERVER}&fp=chrome&pbk=${AFX_REALITY_PUBLIC}&sid=${AFX_REALITY_SHORT_ID}&type=tcp&headerType=none#${label}-reality"
+  hy2_uri="hysteria2://${AFX_HY2_SECRET}@${formatted_host}:${AFX_HY2_PORT}/?sni=${AFX_HY2_SNI}&alpn=h3&insecure=1#${label}-hy2"
+
+  cat > "$AFX_LINK_FILE" <<EOF
+${AFX_NAME} Share Links
+=====================
+Node Label : ${AFX_NODE_LABEL}
+Endpoint   : ${endpoint}
+Core       : ${AFX_CORE_VERSION}
+
 REALITY
-${reality_link}
+${reality_uri}
 
 Hysteria 2
-${hy2_link}
-
-Files
-config: ${CONFIG_FILE}
-links : ${LINKS_FILE}
-meta  : ${META_FILE}
+${hy2_uri}
 EOF
 
-  green "链接已生成: $LINKS_FILE"
-  printf '\n%s\n\n%s\n\n' "$reality_link" "$hy2_link"
-  if command_exists qrencode; then
-    blue "REALITY 二维码"
-    qrencode -t ANSIUTF8 "$reality_link" || true
-    blue "Hysteria 2 二维码"
-    qrencode -t ANSIUTF8 "$hy2_link" || true
-  fi
+  chown root:"$AFX_ACCOUNT" "$AFX_LINK_FILE"
+  chmod 640 "$AFX_LINK_FILE"
+
+  good "已生成订阅链接: ${AFX_LINK_FILE}"
+  printf '\n%s\n\n%s\n\n' "$reality_uri" "$hy2_uri"
 }
 
-show_status() {
-  if systemctl is-active --quiet "$SERVICE_NAME"; then
-    green "${PROJECT_NAME} 运行中"
+status_report() {
+  load_runtime_env
+  if systemctl is-active --quiet "$AFX_SERVICE"; then
+    good "${AFX_NAME} 正在运行"
   else
-    yellow "${PROJECT_NAME} 未运行"
+    warn "${AFX_NAME} 当前未运行"
   fi
-  if [[ -f "$META_FILE" ]]; then
-    # shellcheck disable=SC1090
-    source "$META_FILE"
-    printf 'version: %s\n' "$INSTALLED_VERSION"
-    printf 'reality tcp port: %s\n' "$REALITY_PORT"
-    printf 'hy2 udp port: %s\n' "$HY2_PORT"
-  fi
+
+  printf 'node label       : %s\n' "$AFX_NODE_LABEL"
+  printf 'core version     : %s\n' "$AFX_CORE_VERSION"
+  printf 'reality endpoint : %s:%s\n' "$(public_host)" "$AFX_REALITY_PORT"
+  printf 'hy2 endpoint     : %s:%s/udp\n' "$(public_host)" "$AFX_HY2_PORT"
+  printf 'service user     : %s\n' "$AFX_ACCOUNT"
+  printf 'config file      : %s\n' "$AFX_CONFIG_FILE"
 }
 
-install_flow() {
+apply_performance_profile() {
+  install_tune_plane
+  "$AFX_TUNE_SCRIPT" apply
+}
+
+refresh_core() {
   require_root
   require_systemd
-  detect_arch
-  install_packages
+  detect_architecture
+  install_dependencies
+  ensure_layout
 
-  mkdir -p "$INSTALL_DIR"
+  AFX_CORE_VERSION=$(latest_core_version)
+  download_core_binary "$AFX_CORE_VERSION"
 
-  local default_reality_port default_hy2_port install_choice
-  if port_in_use tcp 443; then
-    default_reality_port=$(random_port tcp)
-  else
-    default_reality_port=443
-  fi
-  if port_in_use udp 443; then
-    default_hy2_port=$(random_port udp)
-  else
-    default_hy2_port=443
+  if [[ -f "$AFX_ENV_FILE" ]]; then
+    awk -F= -v version="$AFX_CORE_VERSION" 'BEGIN { done = 0 } $1 == "AFX_CORE_VERSION" { print "AFX_CORE_VERSION=" version; done = 1; next } { print } END { if (!done) print "AFX_CORE_VERSION=" version }' "$AFX_ENV_FILE" > "$AFX_ENV_FILE.tmp"
+    mv "$AFX_ENV_FILE.tmp" "$AFX_ENV_FILE"
   fi
 
-  yellow "推荐 Ubuntu 22.04/24.04，开放 TCP/UDP 对应端口"
-  install_choice=$(prompt "是否继续安装？输入 y 继续" "y")
-  if [[ ! "$install_choice" =~ ^[Yy]$ ]]; then
-    exit 0
-  fi
-
-  REALITY_SERVER=$(prompt "REALITY 伪装站点" "$DEFAULT_REALITY_SERVER")
-  REALITY_PORT=$(normalize_port "$(prompt "REALITY TCP 端口" "$default_reality_port")" tcp)
-  HY2_PORT=$(normalize_port "$(prompt "Hysteria 2 UDP 端口" "$default_hy2_port")" udp)
-  HY2_UP_MBPS=$(prompt "Hysteria 2 上行限速 Mbps" "1000")
-  HY2_DOWN_MBPS=$(prompt "Hysteria 2 下行限速 Mbps" "1000")
-  ENABLE_TUNING=$(prompt "是否应用 BBR 和 UDP 调优？y/n" "y")
-
-  if [[ ! "$HY2_UP_MBPS" =~ ^[0-9]+$ || ! "$HY2_DOWN_MBPS" =~ ^[0-9]+$ ]]; then
-    red "Hysteria 2 带宽参数必须是整数"
-    exit 1
-  fi
-
-  INSTALLED_VERSION=$(latest_sing_box_version)
-  download_sing_box "$INSTALLED_VERSION"
-
-  UUID=$(cat /proc/sys/kernel/random/uuid)
-  HY2_PASSWORD="$UUID"
-  SERVER_IP=$(get_public_ip)
-  generate_self_signed_cert "$SERVER_IP"
-  generate_reality_keypair
-  generate_short_id
-  generate_config
-  write_meta
-  install_systemd_service
-  install_shortcut
-  apply_tuning
-  build_links
-
-  green "安装完成"
-  blue "v2rayN 直接导入上面的两个链接即可"
-  blue "REALITY 更适合长期保底，Hysteria 2 更适合测速和大流量"
+  systemctl restart "$AFX_SERVICE"
+  good "核心已刷新到 ${AFX_CORE_VERSION}"
 }
 
-update_core() {
+remove_aeroflux() {
   require_root
-  require_systemd
-  detect_arch
-  install_packages
-  INSTALLED_VERSION=$(latest_sing_box_version)
-  download_sing_box "$INSTALLED_VERSION"
-  if [[ -f "$META_FILE" ]]; then
-    awk -F= -v version="$INSTALLED_VERSION" 'BEGIN { updated = 0 } $1 == "INSTALLED_VERSION" { print "INSTALLED_VERSION=" version; updated = 1; next } { print } END { if (!updated) print "INSTALLED_VERSION=" version }' "$META_FILE" > "$META_FILE.tmp"
-    mv "$META_FILE.tmp" "$META_FILE"
-  fi
-  systemctl restart "$SERVICE_NAME"
-  green "sing-box 已更新到 ${INSTALLED_VERSION}"
-}
+  local answer
+  answer=$(prompt_value "确认卸载 ${AFX_NAME} 以及全部配置？输入 y 继续" "n")
+  [[ "$answer" =~ ^[Yy]$ ]] || exit 0
 
-uninstall_all() {
-  require_root
-  if ! [[ "$(prompt "确定卸载 ${PROJECT_NAME} 与配置？y/n" "n")" =~ ^[Yy]$ ]]; then
-    exit 0
-  fi
-  systemctl disable --now "$SERVICE_NAME" >/dev/null 2>&1 || true
-  rm -f "$SERVICE_FILE" "$BIN_PATH" "$SHORTCUT_PATH"
-  rm -rf "$INSTALL_DIR" "/usr/local/lib/${SERVICE_NAME}" "/etc/sysctl.d/99-aeroflux.conf"
+  systemctl disable --now "$AFX_SERVICE" >/dev/null 2>&1 || true
+  rm -f "$AFX_SERVICE_FILE" "$AFX_WRAPPER"
+  rm -rf "$AFX_HOME" "$AFX_STATE" "$AFX_RUNTIME" "$AFX_LIB"
+  rm -f "$AFX_PERF_SYSCTL"
   systemctl daemon-reload
   sysctl --system >/dev/null 2>&1 || true
-  green "卸载完成"
+  if id -u "$AFX_ACCOUNT" >/dev/null 2>&1; then
+    userdel "$AFX_ACCOUNT" >/dev/null 2>&1 || true
+  fi
+  good "${AFX_NAME} 已卸载完成"
 }
 
-menu() {
+install_fresh() {
+  require_root
+  require_systemd
+  detect_architecture
+  install_dependencies
+  ensure_layout
+  ensure_service_account
+
+  local default_label decision
+  default_label="$(hostname -s)-edge"
+
+  note "${AFX_NAME} 将以新的运行布局部署：最小权限账号、硬化 systemd、校验配置、独立核心目录。"
+  decision=$(prompt_value "继续部署？输入 y 继续" "y")
+  [[ "$decision" =~ ^[Yy]$ ]] || exit 0
+
+  AFX_NODE_LABEL=$(sanitize_label "$(prompt_value "节点标签" "$default_label")")
+  AFX_REALITY_SERVER=$(prompt_value "REALITY 握手站点" "$AFX_DEFAULT_REALITY_SERVER")
+  AFX_REALITY_PORT=$(normalize_port "$(prompt_value "REALITY TCP 端口" "$(preferred_port tcp)")" tcp)
+  AFX_HY2_PORT=$(normalize_port "$(prompt_value "Hysteria 2 UDP 端口" "$(preferred_port udp)")" udp)
+  AFX_HY2_UP=$(prompt_value "Hysteria 2 上行带宽上限 Mbps" "1500")
+  AFX_HY2_DOWN=$(prompt_value "Hysteria 2 下行带宽上限 Mbps" "1500")
+
+  [[ "$AFX_HY2_UP" =~ ^[0-9]+$ ]] || die "上行带宽必须是整数"
+  [[ "$AFX_HY2_DOWN" =~ ^[0-9]+$ ]] || die "下行带宽必须是整数"
+
+  AFX_CORE_VERSION=$(latest_core_version)
+  download_core_binary "$AFX_CORE_VERSION"
+
+  AFX_NODE_ID=$(cat /proc/sys/kernel/random/uuid)
+  AFX_HY2_SECRET=$(openssl rand -hex 16)
+  AFX_ENDPOINT=$(public_host)
+
+  generate_tls_material "$AFX_ENDPOINT"
+  generate_reality_keys
+  write_runtime_env
+  render_config
+  install_manager_plane
+  install_tune_plane
+  lock_permissions
+  install_service_unit
+
+  local tune_answer
+  tune_answer=$(prompt_value "是否立即应用性能档案（BBR + UDP profile）？y/n" "y")
+  if [[ "$tune_answer" =~ ^[Yy]$ ]]; then
+    apply_performance_profile
+  fi
+
+  render_links
+  good "${AFX_NAME} 部署完成"
+  note "建议在 v2rayN 中同时保留 REALITY 与 Hysteria 2，两条线路按实时表现切换。"
+}
+
+show_menu() {
   echo
-  blue "${PROJECT_NAME} | Hysteria 2 + REALITY"
-  echo "1. 安装或重装"
-  echo "2. 查看分享链接"
-  echo "3. 更新 sing-box 内核"
-  echo "4. 查看运行状态"
-  echo "5. 卸载"
-  echo "0. 退出"
-  case "$(prompt "请选择" "1")" in
-    1) install_flow ;;
-    2) build_links ;;
-    3) update_core ;;
-    4) show_status ;;
-    5) uninstall_all ;;
+  note "${AFX_NAME} Control Plane"
+  echo "1. Deploy / Rebuild"
+  echo "2. Reprint Share Links"
+  echo "3. Refresh Core"
+  echo "4. Apply Performance Profile"
+  echo "5. Runtime Status"
+  echo "6. Uninstall"
+  echo "0. Exit"
+  case "$(prompt_value "请选择" "1")" in
+    1) install_fresh ;;
+    2) render_links ;;
+    3) refresh_core ;;
+    4) apply_performance_profile ;;
+    5) status_report ;;
+    6) remove_aeroflux ;;
     0) exit 0 ;;
-    *) red "无效选择"; exit 1 ;;
+    *) die "无效选项" ;;
   esac
 }
 
 case "${1-}" in
-  install) install_flow ;;
-  links|show-links) build_links ;;
-  update) update_core ;;
-  uninstall) uninstall_all ;;
-  status) show_status ;;
-  *) menu ;;
+  install|deploy) install_fresh ;;
+  links|show-links) render_links ;;
+  refresh|update) refresh_core ;;
+  tune)
+    shift || true
+    install_tune_plane
+    "$AFX_TUNE_SCRIPT" "${1-apply}"
+    ;;
+  status) status_report ;;
+  uninstall|remove) remove_aeroflux ;;
+  *) show_menu ;;
 esac
