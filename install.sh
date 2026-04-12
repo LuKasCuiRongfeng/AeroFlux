@@ -885,6 +885,8 @@ Note:
 - 如果是 brutal 模式，请把 v2rayN 的 Hysteria 最大流量（Up/Dw）按这里手动填写。
 - 某些 v2rayN 版本导入 hy2:// 链接时不会自动写入 Up/Down Mbps。
 - v2rayN 默认的 Hysteria 2 核心类型可能仍是 Xray，建议切到 sing-box 或 hysteria2 原生核心再测速。
+- 如果你只是做节点测速、全局代理或单节点直连测试，v2rayN 的流量探测类型不用特意勾 quic，避免再引入一层客户端侧变量。
+- 只有在 Tun 分流里明确依赖 QUIC 域名识别时，再考虑打开 quic；它解决的是分流识别，不会直接提高 Hysteria 2 吞吐。
 EOF
 
   cat > "$AFX_HY2_CLIENT_JSON_FILE" <<EOF

@@ -117,6 +117,7 @@ sudo afx tune remove
 如果导入后发现 Hysteria 最大流量为空，请直接按 `/etc/aeroflux/hy2-v2rayn-manual.txt` 手工填写，或者改用 `/etc/aeroflux/hy2-client-singbox.json` 作为客户端配置参考。
 如果选择的是 `BBR 自适应` 模式，请把 v2rayN 的 Hysteria 最大流量 `Up/Dw` 留空。这一模式依赖 BBR 根据实时 RTT、丢包和带宽估计自行收敛，更适合链路上限不稳定或难以准确估计的场景。
 如果你在 v2rayN 里测速始终跑不满，请优先检查 Hysteria 2 的核心类型。v2rayN 默认往往仍是 `Xray`，而 Hysteria 2 的表现很可能取决于你是否切到了 `sing-box` 或 `hysteria2` 原生核心。AeroFlux 现在会额外生成 `/etc/aeroflux/hy2-client-hysteria.yaml`，用于做原生 Hysteria2 客户端 A/B 对比，帮助排除“桌面客户端核心路径本身就是瓶颈”的情况。
+如果你只是做节点测速、全局代理或单节点直连测试，v2rayN 参数设置里的流量探测类型通常不需要额外勾 `quic`。这个选项主要影响 Tun 分流时对 QUIC 目标的识别，不会直接提高 Hysteria 2 吞吐，反而会给客户端路径再增加一个变量。
 如果同机对照已经证明最终 `hy2` 配置差异很小，但吞吐仍明显偏低，那么更应该怀疑 `systemd` 运行限制、`UFW/iptables` 路径和过度激进的 `sysctl` 调优，而不是继续盯着 `hy2` 链接参数本身。
 
 推荐使用策略：
