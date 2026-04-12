@@ -27,6 +27,7 @@ readonly AFX_PERF_SYSCTL="/etc/sysctl.d/90-aeroflux-performance.conf"
 readonly AFX_DEFAULT_REALITY_SERVER="www.cloudflare.com"
 readonly AFX_DEFAULT_HY2_SNI="www.bing.com"
 readonly AFX_DEFAULT_HY2_MODE="bbr"
+readonly AFX_DEFAULT_PERF_PROFILE="extreme"
 readonly AFX_DEFAULT_HY2_SERVER_UP="1000"
 readonly AFX_DEFAULT_HY2_SERVER_DOWN="1000"
 readonly AFX_DEFAULT_HY2_CLIENT_UP="1000"
@@ -35,6 +36,7 @@ readonly AFX_DEFAULT_HY2_CLIENT_DOWN="1000"
 AFX_ARCH=""
 AFX_RELEASE_JSON=""
 AFX_HY2_MODE=""
+AFX_PERF_PROFILE=""
 AFX_HY2_CLIENT_UP=""
 AFX_HY2_CLIENT_DOWN=""
 
@@ -82,6 +84,21 @@ normalize_hy2_mode() {
       ;;
     *)
       die "Hysteria 2 模式只支持 1/bbr 或 2/brutal"
+      ;;
+  esac
+}
+
+normalize_perf_profile() {
+  local raw="${1,,}"
+  case "$raw" in
+    ""|1|extreme|turbo|fast|performance)
+      printf 'extreme'
+      ;;
+    2|balanced|compat|safe)
+      printf 'balanced'
+      ;;
+    *)
+      die "性能模式只支持 1/extreme 或 2/balanced"
       ;;
   esac
 }
@@ -260,6 +277,39 @@ configure_firewall_rules() {
       ip6tables -t raw -D OUTPUT -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK
     done
   fi
+  if [[ "${AFX_PERF_PROFILE:-$AFX_DEFAULT_PERF_PROFILE}" == "extreme" ]]; then
+    note "极致性能模式：关闭主机防火墙并清空本机过滤规则"
+    if has ufw; then
+      ufw --force disable >/dev/null 2>&1 || true
+    fi
+    if has systemctl; then
+      systemctl stop firewalld.service >/dev/null 2>&1 || true
+      systemctl disable firewalld.service >/dev/null 2>&1 || true
+    fi
+    if has setenforce; then
+      setenforce 0 >/dev/null 2>&1 || true
+    fi
+    if has iptables; then
+      iptables -P INPUT ACCEPT >/dev/null 2>&1 || true
+      iptables -P FORWARD ACCEPT >/dev/null 2>&1 || true
+      iptables -P OUTPUT ACCEPT >/dev/null 2>&1 || true
+      iptables -t mangle -F >/dev/null 2>&1 || true
+      iptables -F >/dev/null 2>&1 || true
+      iptables -X >/dev/null 2>&1 || true
+    fi
+    if has ip6tables; then
+      ip6tables -P INPUT ACCEPT >/dev/null 2>&1 || true
+      ip6tables -P FORWARD ACCEPT >/dev/null 2>&1 || true
+      ip6tables -P OUTPUT ACCEPT >/dev/null 2>&1 || true
+      ip6tables -t mangle -F >/dev/null 2>&1 || true
+      ip6tables -F >/dev/null 2>&1 || true
+      ip6tables -X >/dev/null 2>&1 || true
+    fi
+    if has netfilter-persistent; then
+      netfilter-persistent save >/dev/null 2>&1 || true
+    fi
+    return
+  fi
   if has ufw && ufw status 2>/dev/null | grep -q '^Status: active'; then
     note "检测到 UFW 已启用，正在放行 AeroFlux 所需端口"
     ufw allow "${AFX_REALITY_PORT}/tcp" >/dev/null
@@ -366,6 +416,7 @@ AFX_REALITY_SHORT_ID=${AFX_REALITY_SHORT_ID}
 AFX_HY2_PORT=${AFX_HY2_PORT}
 AFX_HY2_SECRET=${AFX_HY2_SECRET}
 AFX_HY2_MODE=${AFX_HY2_MODE}
+AFX_PERF_PROFILE=${AFX_PERF_PROFILE}
 AFX_HY2_UP=${AFX_HY2_UP}
 AFX_HY2_DOWN=${AFX_HY2_DOWN}
 AFX_HY2_CLIENT_UP=${AFX_HY2_CLIENT_UP}
@@ -575,7 +626,35 @@ EOF
 }
 
 install_service_unit() {
-  cat > "$AFX_SERVICE_FILE" <<EOF
+  if [[ "${AFX_PERF_PROFILE:-$AFX_DEFAULT_PERF_PROFILE}" == "extreme" ]]; then
+    cat > "$AFX_SERVICE_FILE" <<EOF
+[Unit]
+Description=${AFX_NAME} edge runtime
+Documentation=https://github.com/LuKasCuiRongfeng/AeroFlux
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${AFX_STATE}
+RuntimeDirectory=${AFX_SERVICE}
+ExecStartPre=${AFX_BINARY} check -c ${AFX_CONFIG_FILE}
+ExecStart=${AFX_BINARY} run -c ${AFX_CONFIG_FILE}
+ExecReload=/bin/kill -HUP \$MAINPID
+Restart=on-failure
+RestartSec=2
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+LimitNOFILE=infinity
+LimitNPROC=infinity
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  else
+    cat > "$AFX_SERVICE_FILE" <<EOF
 [Unit]
 Description=${AFX_NAME} edge runtime
 Documentation=https://github.com/LuKasCuiRongfeng/AeroFlux
@@ -612,6 +691,7 @@ ReadWritePaths=${AFX_HOME} ${AFX_STATE} ${AFX_RUNTIME}
 [Install]
 WantedBy=multi-user.target
 EOF
+  fi
 
   systemctl daemon-reload
   systemctl enable "$AFX_SERVICE" >/dev/null
@@ -622,6 +702,7 @@ load_runtime_env() {
   [[ -f "$AFX_ENV_FILE" ]] || die "未发现 ${AFX_NAME} 运行信息，请先安装"
   # shellcheck disable=SC1090
   source "$AFX_ENV_FILE"
+  AFX_PERF_PROFILE="${AFX_PERF_PROFILE:-$AFX_DEFAULT_PERF_PROFILE}"
   if [[ -z "${AFX_HY2_MODE:-}" ]]; then
     if [[ -n "${AFX_HY2_UP:-}" || -n "${AFX_HY2_DOWN:-}" || -n "${AFX_HY2_CLIENT_UP:-}" || -n "${AFX_HY2_CLIENT_DOWN:-}" ]]; then
       AFX_HY2_MODE="brutal"
@@ -764,7 +845,12 @@ status_report() {
     printf 'hy2 server rate  : auto (BBR mode)\n'
     printf 'hy2 client rate  : auto (BBR mode)\n'
   fi
-  printf 'service user     : %s\n' "$AFX_ACCOUNT"
+  if [[ "$AFX_PERF_PROFILE" == "extreme" ]]; then
+    printf 'service user     : root (extreme)\n'
+  else
+    printf 'service user     : %s\n' "$AFX_ACCOUNT"
+  fi
+  printf 'perf profile     : %s\n' "$AFX_PERF_PROFILE"
   printf 'config file      : %s\n' "$AFX_CONFIG_FILE"
 }
 
@@ -822,11 +908,12 @@ install_fresh() {
   local default_label decision
   default_label="$(hostname -s)-edge"
 
-  note "${AFX_NAME} 将以新的运行布局部署：最小权限账号、硬化 systemd、校验配置、独立核心目录。"
+  note "${AFX_NAME} 默认按极致性能路径部署：root 运行、放开 systemd 约束，并优先移除主机防火墙路径开销。"
   decision=$(prompt_value "继续部署？输入 y 继续" "y")
   [[ "$decision" =~ ^[Yy]$ ]] || exit 0
 
   AFX_NODE_LABEL=$(sanitize_label "$(prompt_value "节点标签" "$default_label")")
+  AFX_PERF_PROFILE=$(normalize_perf_profile "$(prompt_value "性能模式：1=极致性能 2=兼容基线" "1")")
   AFX_REALITY_SERVER=$(prompt_value "REALITY 握手站点" "$AFX_DEFAULT_REALITY_SERVER")
   AFX_REALITY_PORT=$(normalize_port "$(prompt_value "REALITY TCP 端口" "$(preferred_port tcp)")" tcp)
   AFX_HY2_PORT=$(normalize_port "$(prompt_value "Hysteria 2 UDP 端口" "$(preferred_port udp)")" udp)
@@ -883,6 +970,7 @@ install_fresh() {
 
   render_links
   good "${AFX_NAME} 部署完成"
+  note "性能模式: ${AFX_PERF_PROFILE}"
   note "最终端口: REALITY ${AFX_REALITY_PORT}/tcp, Hysteria 2 ${AFX_HY2_PORT}/udp"
   if [[ "$AFX_HY2_MODE" == "brutal" ]]; then
     note "Hysteria 2 模式: Brutal 锁带宽，服务端 ${AFX_HY2_UP}/${AFX_HY2_DOWN} Mbps, 客户端 ${AFX_HY2_CLIENT_UP}/${AFX_HY2_CLIENT_DOWN} Mbps"
