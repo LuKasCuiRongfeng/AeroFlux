@@ -395,7 +395,6 @@ render_config() {
     --arg hy2_mode "$AFX_HY2_MODE" \
     --arg cert_file "$AFX_CERT_FILE" \
     --arg key_file "$AFX_KEY_FILE" \
-    --arg state_dir "$AFX_STATE" \
     --argjson reality_port "$AFX_REALITY_PORT" \
     --argjson hy2_port "$AFX_HY2_PORT" \
     --argjson hy2_up "$(json_number_or_null "$AFX_HY2_UP")" \
@@ -466,16 +465,7 @@ render_config() {
           type: "block",
           tag: "block"
         }
-      ],
-      route: {
-        auto_detect_interface: true
-      },
-      experimental: {
-        cache_file: {
-          enabled: true,
-          path: ($state_dir + "/cache.db")
-        }
-      }
+      ]
     }' > "$AFX_CONFIG_FILE"
 
   "$AFX_BINARY" check -c "$AFX_CONFIG_FILE" >/dev/null
@@ -525,19 +515,21 @@ write_profile() {
   cat > "$AFX_SYSCTL_FILE" <<'CONF'
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
+net.core.somaxconn = 65535
+net.core.netdev_max_backlog = 262144
+net.core.optmem_max = 25165824
 net.core.rmem_default = 16777216
 net.core.wmem_default = 16777216
 net.core.rmem_max = 67108864
 net.core.wmem_max = 67108864
-net.core.somaxconn = 8192
-net.core.netdev_max_backlog = 16384
-net.ipv4.tcp_rmem = 4096 87380 67108864
-net.ipv4.tcp_wmem = 4096 65536 67108864
 net.ipv4.tcp_fastopen = 3
 net.ipv4.tcp_mtu_probing = 1
 net.ipv4.tcp_slow_start_after_idle = 0
-net.ipv4.udp_rmem_min = 8192
-net.ipv4.udp_wmem_min = 8192
+net.ipv4.tcp_rmem = 4096 87380 67108864
+net.ipv4.tcp_wmem = 4096 65536 67108864
+net.ipv4.udp_rmem_min = 32768
+net.ipv4.udp_wmem_min = 32768
+net.ipv4.udp_mem = 262144 524288 1048576
 CONF
 }
 
@@ -592,6 +584,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+User=${AFX_ACCOUNT}
+Group=${AFX_ACCOUNT}
 WorkingDirectory=${AFX_STATE}
 RuntimeDirectory=${AFX_SERVICE}
 ExecStartPre=${AFX_BINARY} check -c ${AFX_CONFIG_FILE}
@@ -599,11 +593,21 @@ ExecStart=${AFX_BINARY} run -c ${AFX_CONFIG_FILE}
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=2
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
-LimitNOFILE=infinity
-LimitNPROC=infinity
-TasksMax=infinity
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictRealtime=true
+SystemCallArchitectures=native
+ReadWritePaths=${AFX_HOME} ${AFX_STATE} ${AFX_RUNTIME}
 
 [Install]
 WantedBy=multi-user.target
@@ -818,7 +822,7 @@ install_fresh() {
   local default_label decision
   default_label="$(hostname -s)-edge"
 
-  note "${AFX_NAME} 将按当前运行布局部署：校验配置、独立核心目录，并应用保守的网络侧调整。"
+  note "${AFX_NAME} 将以新的运行布局部署：最小权限账号、硬化 systemd、校验配置、独立核心目录。"
   decision=$(prompt_value "继续部署？输入 y 继续" "y")
   [[ "$decision" =~ ^[Yy]$ ]] || exit 0
 
