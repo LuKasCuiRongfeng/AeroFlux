@@ -59,8 +59,8 @@ sudo ./install.sh
 - REALITY 握手站点
 - REALITY TCP 端口
 - Hysteria 2 UDP 端口
-- Hysteria 2 服务端上下行带宽上限
-- Hysteria 2 客户端上下行目标带宽（写入分享链接）
+- Hysteria 2 模式：`BBR 兼容高速` 或 `Brutal 锁带宽`
+- 如果选择 `Brutal`，再继续填写服务端与客户端的上下行带宽
 - 是否立即应用性能档案
 
 ## 管理方式
@@ -112,8 +112,9 @@ sudo afx tune remove
 1. REALITY 稳态链路
 2. Hysteria 2 高吞吐链路
 
-其中 Hysteria 2 链接会附带客户端带宽参数，但部分 v2rayN 版本不会把 Up/Down Mbps 自动写入节点编辑页。
+如果选择的是 `Brutal` 模式，Hysteria 2 链接会附带客户端带宽参数，但部分 v2rayN 版本不会把 Up/Down Mbps 自动写入节点编辑页。
 如果导入后发现 Hysteria 最大流量为空，请直接按 `/etc/aeroflux/hy2-v2rayn-manual.txt` 手工填写，或者改用 `/etc/aeroflux/hy2-client-singbox.json` 作为客户端配置参考。
+如果选择的是 `BBR` 模式，请把 v2rayN 的 Hysteria 最大流量 `Up/Dw` 留空。这一模式更接近原仓库默认行为，也更适合先排查“Brutal 参数反而拖慢当前线路”的场景。
 
 推荐使用策略：
 
@@ -141,7 +142,8 @@ AeroFlux 默认按无域名部署设计：
 - 明确放行 REALITY 对应 TCP 端口与 Hysteria 2 对应 UDP 端口
 - 优先选择跨境链路质量更高的机房
 - 在内核支持的前提下开启性能档案
-- Hysteria 2 的服务端与客户端带宽值尽量贴近真实链路，虚高会影响吞吐稳定性
+- 如果目标是复现原仓库的 Hysteria 2 表现，优先先用 `BBR 兼容高速` 模式测试
+- 只有在线路特征很清楚时，再切到 `Brutal 锁带宽`，并让服务端与客户端带宽值贴近真实链路，虚高会影响吞吐稳定性
 
 ## 路线
 
