@@ -479,6 +479,16 @@ render_config() {
         level: "warn",
         timestamp: true
       },
+      dns: {
+        servers: [
+          {
+            type: "local",
+            tag: "local-dns",
+            prefer_go: true
+          }
+        ],
+        final: "local-dns"
+      },
       inbounds: [
         {
           type: "vless",
@@ -534,14 +544,20 @@ render_config() {
       outbounds: [
         {
           type: "direct",
-          tag: "direct",
-          domain_strategy: $outbound_strategy
+          tag: "direct"
         },
         {
           type: "block",
           tag: "block"
         }
-      ]
+      ],
+      route: {
+        auto_detect_interface: true,
+        default_domain_resolver: {
+          server: "local-dns",
+          strategy: $outbound_strategy
+        }
+      }
     }' > "$AFX_CONFIG_FILE"
 
   "$AFX_BINARY" check -c "$AFX_CONFIG_FILE" >/dev/null
