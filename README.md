@@ -52,13 +52,10 @@ AeroFlux 默认按无域名场景工作：
 在 VPS 上执行：
 
 ```bash
-git clone https://github.com/LuKasCuiRongfeng/AeroFlux.git
-cd AeroFlux
-chmod +x install.sh
-sudo ./install.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/LuKasCuiRongfeng/AeroFlux/main/install.sh)
 ```
 
-如果你已经为这台机器配置了 GitHub 认证，也可以直接克隆私有仓库后执行：
+如果你想先看代码再安装，也可以手动克隆后执行：
 
 ```bash
 git clone https://github.com/LuKasCuiRongfeng/AeroFlux.git
@@ -66,11 +63,6 @@ cd AeroFlux
 chmod +x install.sh
 sudo ./install.sh
 ```
-
-说明：
-
-- 当前仓库为私有仓库，因此不再使用公开 `raw.githubusercontent.com` 直链安装方式
-- 如果后续改为公开仓库，再补回单行 `curl` 安装命令即可
 
 安装过程会询问：
 
