@@ -19,6 +19,7 @@ readonly AFX_ENV_FILE="$AFX_HOME/runtime.env"
 readonly AFX_LINK_FILE="$AFX_HOME/share-links.txt"
 readonly AFX_HY2_CLIENT_HINT_FILE="$AFX_HOME/hy2-v2rayn-manual.txt"
 readonly AFX_HY2_CLIENT_JSON_FILE="$AFX_HOME/hy2-client-singbox.json"
+readonly AFX_HY2_NATIVE_FILE="$AFX_HOME/hy2-client-hysteria.yaml"
 readonly AFX_CERT_FILE="$AFX_HOME/tls.crt"
 readonly AFX_KEY_FILE="$AFX_HOME/tls.key"
 readonly AFX_OPENSSL_FILE="$AFX_STATE/openssl.cnf"
@@ -668,6 +669,7 @@ Note:
 - 如果是 bbr 模式，请把 v2rayN 的 Hysteria 最大流量（Up/Dw）留空，不要手填。
 - 如果是 brutal 模式，请把 v2rayN 的 Hysteria 最大流量（Up/Dw）按这里手动填写。
 - 某些 v2rayN 版本导入 hy2:// 链接时不会自动写入 Up/Down Mbps。
+- v2rayN 默认的 Hysteria 2 核心类型可能仍是 Xray，建议切到 sing-box 或 hysteria2 原生核心再测速。
 EOF
 
   cat > "$AFX_HY2_CLIENT_JSON_FILE" <<EOF
@@ -695,12 +697,43 @@ EOF
     mv "${AFX_HY2_CLIENT_JSON_FILE}.tmp" "$AFX_HY2_CLIENT_JSON_FILE"
   fi
 
-  chown root:"$AFX_ACCOUNT" "$AFX_LINK_FILE" "$AFX_HY2_CLIENT_HINT_FILE" "$AFX_HY2_CLIENT_JSON_FILE"
-  chmod 640 "$AFX_LINK_FILE" "$AFX_HY2_CLIENT_HINT_FILE" "$AFX_HY2_CLIENT_JSON_FILE"
+  cat > "$AFX_HY2_NATIVE_FILE" <<EOF
+server: ${endpoint}:${AFX_HY2_PORT}
+auth: ${AFX_HY2_SECRET}
+tls:
+  sni: ${AFX_HY2_SNI}
+  insecure: true
+transport:
+  type: udp
+quic:
+  initStreamReceiveWindow: 26843545
+  maxStreamReceiveWindow: 26843545
+  initConnReceiveWindow: 67108864
+  maxConnReceiveWindow: 67108864
+congestion:
+  type: bbr
+  bbrProfile: aggressive
+fastOpen: true
+socks5:
+  listen: 127.0.0.1:1080
+EOF
+
+  if [[ "$AFX_HY2_MODE" == "brutal" ]]; then
+    cat >> "$AFX_HY2_NATIVE_FILE" <<EOF
+bandwidth:
+  up: ${AFX_HY2_CLIENT_UP} mbps
+  down: ${AFX_HY2_CLIENT_DOWN} mbps
+EOF
+  fi
+
+  chown root:"$AFX_ACCOUNT" "$AFX_LINK_FILE" "$AFX_HY2_CLIENT_HINT_FILE" "$AFX_HY2_CLIENT_JSON_FILE" "$AFX_HY2_NATIVE_FILE"
+  chmod 640 "$AFX_LINK_FILE" "$AFX_HY2_CLIENT_HINT_FILE" "$AFX_HY2_CLIENT_JSON_FILE" "$AFX_HY2_NATIVE_FILE"
 
   good "已生成订阅链接: ${AFX_LINK_FILE}"
   note "已生成 Hysteria 2 手工参数: ${AFX_HY2_CLIENT_HINT_FILE}"
   note "已生成 Hysteria 2 sing-box 客户端 JSON: ${AFX_HY2_CLIENT_JSON_FILE}"
+  note "已生成 Hysteria 2 原生客户端 YAML: ${AFX_HY2_NATIVE_FILE}"
+  warn "测速前请确认 v2rayN 的 Hysteria 2 核心类型不是默认 Xray，优先改为 sing-box 或 hysteria2 原生核心"
   printf '\n%s\n\n%s\n\n' "$reality_uri" "$hy2_uri"
 }
 

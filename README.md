@@ -104,6 +104,7 @@ sudo afx tune remove
 - `/etc/aeroflux/share-links.txt`
 - `/etc/aeroflux/hy2-v2rayn-manual.txt`
 - `/etc/aeroflux/hy2-client-singbox.json`
+- `/etc/aeroflux/hy2-client-hysteria.yaml`
 - `/etc/aeroflux/tls.crt`
 - `/etc/aeroflux/tls.key`
 
@@ -115,6 +116,7 @@ sudo afx tune remove
 如果选择的是 `Brutal` 模式，Hysteria 2 链接会附带客户端带宽参数，但部分 v2rayN 版本不会把 Up/Down Mbps 自动写入节点编辑页。
 如果导入后发现 Hysteria 最大流量为空，请直接按 `/etc/aeroflux/hy2-v2rayn-manual.txt` 手工填写，或者改用 `/etc/aeroflux/hy2-client-singbox.json` 作为客户端配置参考。
 如果选择的是 `BBR` 模式，请把 v2rayN 的 Hysteria 最大流量 `Up/Dw` 留空。这一模式更接近原仓库默认行为，也更适合先排查“Brutal 参数反而拖慢当前线路”的场景。
+如果你在 v2rayN 里测速始终跑不满，请优先检查 Hysteria 2 的核心类型。v2rayN 默认往往仍是 `Xray`，而 Hysteria 2 的表现很可能取决于你是否切到了 `sing-box` 或 `hysteria2` 原生核心。AeroFlux 现在会额外生成 `/etc/aeroflux/hy2-client-hysteria.yaml`，用于做原生 Hysteria2 客户端 A/B 对比，帮助排除“桌面客户端核心路径本身就是瓶颈”的情况。
 
 推荐使用策略：
 
@@ -144,6 +146,7 @@ AeroFlux 默认按无域名部署设计：
 - 在内核支持的前提下开启性能档案
 - 如果目标是复现原仓库的 Hysteria 2 表现，优先先用 `BBR 兼容高速` 模式测试
 - 只有在线路特征很清楚时，再切到 `Brutal 锁带宽`，并让服务端与客户端带宽值贴近真实链路，虚高会影响吞吐稳定性
+- 如果 v2rayN 里 Hysteria 2 仍然偏慢，先把该协议的核心切到 `sing-box` 或 `hysteria2` 原生核心再测，不要直接用默认 `Xray` 路径下结论
 
 ## 路线
 
