@@ -419,8 +419,6 @@ render_config() {
           {
             type: "hysteria2",
             tag: "edge-hy2",
-            sniff: true,
-            sniff_override_destination: true,
             listen: "::",
             listen_port: $hy2_port,
             ignore_client_bandwidth: false,
@@ -662,7 +660,6 @@ Down Mbps         : ${AFX_HY2_CLIENT_DOWN:-留空}
 
 Note:
 - 当前模式为 ${AFX_HY2_MODE}。
-- bbr 模式已尽量贴近原仓库的最终 hy2 配置与分享参数。
 - 如果是 bbr 模式，请把 v2rayN 的 Hysteria 最大流量（Up/Dw）留空，不要手填。
 - 如果是 brutal 模式，请把 v2rayN 的 Hysteria 最大流量（Up/Dw）按这里手动填写。
 - 某些 v2rayN 版本导入 hy2:// 链接时不会自动写入 Up/Down Mbps。
@@ -817,8 +814,8 @@ install_fresh() {
   AFX_REALITY_SERVER=$(prompt_value "REALITY 握手站点" "$AFX_DEFAULT_REALITY_SERVER")
   AFX_REALITY_PORT=$(normalize_port "$(prompt_value "REALITY TCP 端口" "$(preferred_port tcp)")" tcp)
   AFX_HY2_PORT=$(normalize_port "$(prompt_value "Hysteria 2 UDP 端口" "$(preferred_port udp)")" udp)
-  note "Hysteria 2 现在支持两种模式：1 为 Legacy BBR 兼容模式，尽量贴近原仓库；2 为 Brutal 锁带宽模式，适合明确知道链路极限时压榨吞吐。"
-  AFX_HY2_MODE=$(normalize_hy2_mode "$(prompt_value "Hysteria 2 模式：1=Legacy-BBR兼容 2=Brutal锁带宽" "1")")
+  note "Hysteria 2 现在支持两种模式：1 为 BBR 自适应模式；2 为 Brutal 固定速率模式。前者更适合未知链路，后者只适合你能准确估计带宽上限的场景。"
+  AFX_HY2_MODE=$(normalize_hy2_mode "$(prompt_value "Hysteria 2 模式：1=BBR自适应 2=Brutal固定速率" "1")")
   if [[ "$AFX_HY2_MODE" == "brutal" ]]; then
     note "Brutal 模式需要服务端和客户端都填写接近真实链路的带宽，不要盲目虚高。"
     AFX_HY2_UP=$(prompt_value "Hysteria 2 服务端上行带宽上限 Mbps" "$AFX_DEFAULT_HY2_SERVER_UP")
@@ -874,7 +871,7 @@ install_fresh() {
   if [[ "$AFX_HY2_MODE" == "brutal" ]]; then
     note "Hysteria 2 模式: Brutal 锁带宽，服务端 ${AFX_HY2_UP}/${AFX_HY2_DOWN} Mbps, 客户端 ${AFX_HY2_CLIENT_UP}/${AFX_HY2_CLIENT_DOWN} Mbps"
   else
-    note "Hysteria 2 模式: Legacy BBR 兼容，客户端 Up/Dw 请留空，分享参数与服务端行为已尽量贴近原仓库"
+    note "Hysteria 2 模式: BBR 自适应，客户端 Up/Dw 请留空，按链路实时状态自动收敛"
   fi
   note "建议在 v2rayN 中同时保留 REALITY 与 Hysteria 2，两条线路按实时表现切换。"
 }

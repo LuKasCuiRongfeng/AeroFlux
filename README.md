@@ -59,7 +59,7 @@ sudo ./install.sh
 - REALITY 握手站点
 - REALITY TCP 端口
 - Hysteria 2 UDP 端口
-- Hysteria 2 模式：`Legacy BBR 兼容` 或 `Brutal 锁带宽`
+- Hysteria 2 模式：`BBR 自适应` 或 `Brutal 锁带宽`
 - 如果选择 `Brutal`，再继续填写服务端与客户端的上下行带宽
 - 是否立即应用性能档案
 
@@ -115,7 +115,7 @@ sudo afx tune remove
 
 如果选择的是 `Brutal` 模式，Hysteria 2 链接会附带客户端带宽参数，但部分 v2rayN 版本不会把 Up/Down Mbps 自动写入节点编辑页。
 如果导入后发现 Hysteria 最大流量为空，请直接按 `/etc/aeroflux/hy2-v2rayn-manual.txt` 手工填写，或者改用 `/etc/aeroflux/hy2-client-singbox.json` 作为客户端配置参考。
-如果选择的是 `Legacy BBR` 模式，请把 v2rayN 的 Hysteria 最大流量 `Up/Dw` 留空。这一模式会尽量贴近原仓库的最终 Hysteria2 服务端行为与分享参数，用来做同机对照。
+如果选择的是 `BBR 自适应` 模式，请把 v2rayN 的 Hysteria 最大流量 `Up/Dw` 留空。这一模式依赖 BBR 根据实时 RTT、丢包和带宽估计自行收敛，更适合链路上限不稳定或难以准确估计的场景。
 如果你在 v2rayN 里测速始终跑不满，请优先检查 Hysteria 2 的核心类型。v2rayN 默认往往仍是 `Xray`，而 Hysteria 2 的表现很可能取决于你是否切到了 `sing-box` 或 `hysteria2` 原生核心。AeroFlux 现在会额外生成 `/etc/aeroflux/hy2-client-hysteria.yaml`，用于做原生 Hysteria2 客户端 A/B 对比，帮助排除“桌面客户端核心路径本身就是瓶颈”的情况。
 
 推荐使用策略：
@@ -131,7 +131,7 @@ AeroFlux 默认按无域名部署设计：
 - REALITY 使用外部握手站点，不要求你持有域名
 - Hysteria 2 使用自签 TLS 材料
 - 生成的 Hysteria 2 链接自动附带 `insecure=1`
-- Hysteria 2 服务端默认保持极简入站，不额外挂 H3 masquerade，尽量贴近原仓库的基础行为
+- Hysteria 2 服务端默认保持极简入站，不额外挂额外 H3 反代行为，避免无关变量影响吞吐测试
 
 这套设计的核心不是“伪装更多”，而是：
 
@@ -145,7 +145,7 @@ AeroFlux 默认按无域名部署设计：
 - 明确放行 REALITY 对应 TCP 端口与 Hysteria 2 对应 UDP 端口
 - 优先选择跨境链路质量更高的机房
 - 在内核支持的前提下开启性能档案
-- 如果目标是复现原仓库的 Hysteria 2 表现，优先先用 `Legacy BBR 兼容` 模式测试
+- 如果目标是做高吞吐场景测试，优先先用 `BBR 自适应` 模式测试
 - 只有在线路特征很清楚时，再切到 `Brutal 锁带宽`，并让服务端与客户端带宽值贴近真实链路，虚高会影响吞吐稳定性
 - 如果 v2rayN 里 Hysteria 2 仍然偏慢，先把该协议的核心切到 `sing-box` 或 `hysteria2` 原生核心再测，不要直接用默认 `Xray` 路径下结论
 
