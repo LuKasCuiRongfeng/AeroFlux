@@ -305,6 +305,14 @@ configure_firewall_rules() {
       ip6tables -F >/dev/null 2>&1 || true
       ip6tables -X >/dev/null 2>&1 || true
     fi
+    if has iptables; then
+      iptables -t raw -A PREROUTING -p udp --dport "${AFX_HY2_PORT}" -j NOTRACK >/dev/null 2>&1 || true
+      iptables -t raw -A OUTPUT -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK >/dev/null 2>&1 || true
+    fi
+    if has ip6tables; then
+      ip6tables -t raw -A PREROUTING -p udp --dport "${AFX_HY2_PORT}" -j NOTRACK >/dev/null 2>&1 || true
+      ip6tables -t raw -A OUTPUT -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK >/dev/null 2>&1 || true
+    fi
     if has netfilter-persistent; then
       netfilter-persistent save >/dev/null 2>&1 || true
     fi
