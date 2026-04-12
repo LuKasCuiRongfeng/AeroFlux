@@ -144,3 +144,7 @@ AeroFlux 后续的迭代方向只围绕下面几件事：
 - 提升 Hysteria 2 在高带宽场景下的吞吐效率
 - 继续强化控制平面、配置校验和系统硬化
 - 优化 v2rayN 与桌面客户端导入体验
+
+## License
+
+This project is released under the MIT License. See `LICENSE` for details.
