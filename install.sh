@@ -244,23 +244,26 @@ normalize_port() {
 }
 
 configure_firewall_rules() {
+  if has iptables; then
+    while iptables -t raw -C PREROUTING -p udp --dport "${AFX_HY2_PORT}" -j NOTRACK 2>/dev/null; do
+      iptables -t raw -D PREROUTING -p udp --dport "${AFX_HY2_PORT}" -j NOTRACK
+    done
+    while iptables -t raw -C OUTPUT -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK 2>/dev/null; do
+      iptables -t raw -D OUTPUT -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK
+    done
+  fi
+  if has ip6tables; then
+    while ip6tables -t raw -C PREROUTING -p udp --dport "${AFX_HY2_PORT}" -j NOTRACK 2>/dev/null; do
+      ip6tables -t raw -D PREROUTING -p udp --dport "${AFX_HY2_PORT}" -j NOTRACK
+    done
+    while ip6tables -t raw -C OUTPUT -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK 2>/dev/null; do
+      ip6tables -t raw -D OUTPUT -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK
+    done
+  fi
   if has ufw && ufw status 2>/dev/null | grep -q '^Status: active'; then
     note "检测到 UFW 已启用，正在放行 AeroFlux 所需端口"
     ufw allow "${AFX_REALITY_PORT}/tcp" >/dev/null
     ufw allow "${AFX_HY2_PORT}/udp" >/dev/null
-  fi
-  # Bypass conntrack for Hysteria2 UDP — eliminates per-packet nf_conntrack overhead
-  if has iptables; then
-    iptables  -t raw -C PREROUTING -p udp --dport "${AFX_HY2_PORT}" -j NOTRACK 2>/dev/null || \
-      iptables  -t raw -A PREROUTING -p udp --dport "${AFX_HY2_PORT}" -j NOTRACK
-    iptables  -t raw -C OUTPUT     -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK 2>/dev/null || \
-      iptables  -t raw -A OUTPUT     -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK
-  fi
-  if has ip6tables; then
-    ip6tables -t raw -C PREROUTING -p udp --dport "${AFX_HY2_PORT}" -j NOTRACK 2>/dev/null || \
-      ip6tables -t raw -A PREROUTING -p udp --dport "${AFX_HY2_PORT}" -j NOTRACK
-    ip6tables -t raw -C OUTPUT     -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK 2>/dev/null || \
-      ip6tables -t raw -A OUTPUT     -p udp --sport "${AFX_HY2_PORT}" -j NOTRACK
   fi
 }
 
@@ -815,7 +818,7 @@ install_fresh() {
   local default_label decision
   default_label="$(hostname -s)-edge"
 
-  note "${AFX_NAME} 将以新的运行布局部署：最小权限账号、硬化 systemd、校验配置、独立核心目录。"
+  note "${AFX_NAME} 将按当前运行布局部署：校验配置、独立核心目录，并应用保守的网络侧调整。"
   decision=$(prompt_value "继续部署？输入 y 继续" "y")
   [[ "$decision" =~ ^[Yy]$ ]] || exit 0
 
