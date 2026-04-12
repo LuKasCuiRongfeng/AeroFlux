@@ -499,21 +499,10 @@ write_profile() {
   cat > "$AFX_SYSCTL_FILE" <<'CONF'
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
-net.core.somaxconn = 65535
-net.core.netdev_max_backlog = 262144
-net.core.optmem_max = 25165824
 net.core.rmem_default = 16777216
 net.core.wmem_default = 16777216
-net.core.rmem_max = 67108864
-net.core.wmem_max = 67108864
-net.ipv4.tcp_fastopen = 3
-net.ipv4.tcp_mtu_probing = 1
-net.ipv4.tcp_slow_start_after_idle = 0
-net.ipv4.tcp_rmem = 4096 87380 67108864
-net.ipv4.tcp_wmem = 4096 65536 67108864
-net.ipv4.udp_rmem_min = 32768
-net.ipv4.udp_wmem_min = 32768
-net.ipv4.udp_mem = 262144 524288 1048576
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
 CONF
 }
 
@@ -577,20 +566,15 @@ ExecStart=${AFX_BINARY} run -c ${AFX_CONFIG_FILE}
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=2
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+LimitNOFILE=infinity
+TasksMax=infinity
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ProtectControlGroups=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
-LockPersonality=true
-MemoryDenyWriteExecute=true
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
-RestrictRealtime=true
-SystemCallArchitectures=native
+ProtectSystem=full
+ProtectHome=read-only
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK AF_PACKET
 ReadWritePaths=${AFX_HOME} ${AFX_STATE} ${AFX_RUNTIME}
 
 [Install]

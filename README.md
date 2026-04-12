@@ -117,6 +117,7 @@ sudo afx tune remove
 如果导入后发现 Hysteria 最大流量为空，请直接按 `/etc/aeroflux/hy2-v2rayn-manual.txt` 手工填写，或者改用 `/etc/aeroflux/hy2-client-singbox.json` 作为客户端配置参考。
 如果选择的是 `BBR 自适应` 模式，请把 v2rayN 的 Hysteria 最大流量 `Up/Dw` 留空。这一模式依赖 BBR 根据实时 RTT、丢包和带宽估计自行收敛，更适合链路上限不稳定或难以准确估计的场景。
 如果你在 v2rayN 里测速始终跑不满，请优先检查 Hysteria 2 的核心类型。v2rayN 默认往往仍是 `Xray`，而 Hysteria 2 的表现很可能取决于你是否切到了 `sing-box` 或 `hysteria2` 原生核心。AeroFlux 现在会额外生成 `/etc/aeroflux/hy2-client-hysteria.yaml`，用于做原生 Hysteria2 客户端 A/B 对比，帮助排除“桌面客户端核心路径本身就是瓶颈”的情况。
+如果同机对照已经证明最终 `hy2` 配置差异很小，但吞吐仍明显偏低，那么更应该怀疑 `systemd` 运行限制、`UFW/iptables` 路径和过度激进的 `sysctl` 调优，而不是继续盯着 `hy2` 链接参数本身。
 
 推荐使用策略：
 
@@ -148,6 +149,7 @@ AeroFlux 默认按无域名部署设计：
 - 如果目标是做高吞吐场景测试，优先先用 `BBR 自适应` 模式测试
 - 只有在线路特征很清楚时，再切到 `Brutal 锁带宽`，并让服务端与客户端带宽值贴近真实链路，虚高会影响吞吐稳定性
 - 如果 v2rayN 里 Hysteria 2 仍然偏慢，先把该协议的核心切到 `sing-box` 或 `hysteria2` 原生核心再测，不要直接用默认 `Xray` 路径下结论
+- 如果同机对照后仍明显慢，优先测试关闭主机防火墙或改用云防火墙放行，并避免套用过重的 `sysctl` 魔改参数
 
 ## 路线
 
