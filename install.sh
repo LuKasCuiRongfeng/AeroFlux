@@ -152,6 +152,7 @@ download_core_binary() {
   mkdir -p "$AFX_CORE_DIR"
   tar -xzf "$workdir/core.tar.gz" -C "$workdir"
   install -m 755 "$workdir/sing-box-${version}-linux-${AFX_ARCH}/sing-box" "$AFX_BINARY"
+  chmod 755 "$AFX_CORE_DIR"
   rm -rf "$workdir"
 }
 
@@ -244,7 +245,8 @@ service_shell() {
 
 ensure_layout() {
   mkdir -p "$AFX_HOME" "$AFX_STATE" "$AFX_RUNTIME" "$AFX_LIB"
-  chmod 750 "$AFX_HOME" "$AFX_STATE" "$AFX_LIB"
+  chmod 750 "$AFX_HOME"
+  chmod 755 "$AFX_STATE" "$AFX_LIB"
 }
 
 ensure_service_account() {
@@ -313,7 +315,11 @@ EOF
 }
 
 lock_permissions() {
-  chown -R root:"$AFX_ACCOUNT" "$AFX_HOME" "$AFX_STATE"
+  chown -R root:"$AFX_ACCOUNT" "$AFX_HOME"
+  chown -R root:root "$AFX_LIB"
+  chown -R "$AFX_ACCOUNT":"$AFX_ACCOUNT" "$AFX_STATE" "$AFX_RUNTIME"
+  chmod 750 "$AFX_HOME"
+  chmod 755 "$AFX_LIB" "$AFX_CORE_DIR" "$AFX_STATE"
   chmod 640 "$AFX_CONFIG_FILE" "$AFX_ENV_FILE" "$AFX_CERT_FILE" "$AFX_KEY_FILE"
   chmod 640 "$AFX_LINK_FILE" 2>/dev/null || true
 }
