@@ -24,9 +24,15 @@ readonly AFX_PERF_SYSCTL="/etc/sysctl.d/90-aeroflux-performance.conf"
 readonly AFX_DEFAULT_REALITY_SERVER="www.cloudflare.com"
 readonly AFX_DEFAULT_HY2_SNI="www.bing.com"
 readonly AFX_DEFAULT_MASQUERADE="https://www.cloudflare.com/"
+readonly AFX_DEFAULT_HY2_SERVER_UP="1000"
+readonly AFX_DEFAULT_HY2_SERVER_DOWN="1000"
+readonly AFX_DEFAULT_HY2_CLIENT_UP="1000"
+readonly AFX_DEFAULT_HY2_CLIENT_DOWN="1000"
 
 AFX_ARCH=""
 AFX_RELEASE_JSON=""
+AFX_HY2_CLIENT_UP=""
+AFX_HY2_CLIENT_DOWN=""
 
 paint() {
   local color="$1"
@@ -317,6 +323,8 @@ AFX_HY2_PORT=${AFX_HY2_PORT}
 AFX_HY2_SECRET=${AFX_HY2_SECRET}
 AFX_HY2_UP=${AFX_HY2_UP}
 AFX_HY2_DOWN=${AFX_HY2_DOWN}
+AFX_HY2_CLIENT_UP=${AFX_HY2_CLIENT_UP}
+AFX_HY2_CLIENT_DOWN=${AFX_HY2_CLIENT_DOWN}
 AFX_HY2_SNI=${AFX_DEFAULT_HY2_SNI}
 AFX_ENDPOINT=${AFX_ENDPOINT}
 EOF
@@ -385,6 +393,7 @@ render_config() {
           listen_port: $hy2_port,
           up_mbps: $hy2_up,
           down_mbps: $hy2_down,
+          ignore_client_bandwidth: false,
           users: [
             {
               name: "primary",
@@ -459,17 +468,21 @@ write_profile() {
   cat > "$AFX_SYSCTL_FILE" <<'CONF'
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
-net.core.somaxconn = 4096
-net.core.netdev_max_backlog = 16384
-net.core.rmem_default = 8388608
-net.core.wmem_default = 8388608
-net.core.rmem_max = 33554432
-net.core.wmem_max = 33554432
+net.core.somaxconn = 65535
+net.core.netdev_max_backlog = 262144
+net.core.optmem_max = 25165824
+net.core.rmem_default = 16777216
+net.core.wmem_default = 16777216
+net.core.rmem_max = 67108864
+net.core.wmem_max = 67108864
 net.ipv4.tcp_fastopen = 3
 net.ipv4.tcp_mtu_probing = 1
-net.ipv4.udp_rmem_min = 16384
-net.ipv4.udp_wmem_min = 16384
-net.ipv4.udp_mem = 65536 131072 262144
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_rmem = 4096 87380 67108864
+net.ipv4.tcp_wmem = 4096 65536 67108864
+net.ipv4.udp_rmem_min = 32768
+net.ipv4.udp_wmem_min = 32768
+net.ipv4.udp_mem = 262144 524288 1048576
 CONF
 }
 
@@ -494,6 +507,7 @@ show_status() {
   sysctl net.core.rmem_max
   sysctl net.core.wmem_max
   sysctl net.core.netdev_max_backlog
+  sysctl net.ipv4.udp_mem
 }
 
 remove_profile() {
@@ -572,7 +586,7 @@ render_links() {
   label=$(sanitize_label "$AFX_NODE_LABEL")
 
   reality_uri="vless://${AFX_NODE_ID}@${formatted_host}:${AFX_REALITY_PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${AFX_REALITY_SERVER}&fp=chrome&pbk=${AFX_REALITY_PUBLIC}&sid=${AFX_REALITY_SHORT_ID}&type=tcp&headerType=none#${label}-reality"
-  hy2_uri="hysteria2://${AFX_HY2_SECRET}@${formatted_host}:${AFX_HY2_PORT}/?sni=${AFX_HY2_SNI}&alpn=h3&insecure=1#${label}-hy2"
+  hy2_uri="hysteria2://${AFX_HY2_SECRET}@${formatted_host}:${AFX_HY2_PORT}/?sni=${AFX_HY2_SNI}&alpn=h3&insecure=1&allowInsecure=1&upmbps=${AFX_HY2_CLIENT_UP}&downmbps=${AFX_HY2_CLIENT_DOWN}#${label}-hy2"
 
   cat > "$AFX_LINK_FILE" <<EOF
 ${AFX_NAME} Share Links
@@ -607,6 +621,8 @@ status_report() {
   printf 'core version     : %s\n' "$AFX_CORE_VERSION"
   printf 'reality endpoint : %s:%s\n' "$(public_host)" "$AFX_REALITY_PORT"
   printf 'hy2 endpoint     : %s:%s/udp\n' "$(public_host)" "$AFX_HY2_PORT"
+  printf 'hy2 server rate  : %s/%s Mbps\n' "$AFX_HY2_UP" "$AFX_HY2_DOWN"
+  printf 'hy2 client rate  : %s/%s Mbps\n' "$AFX_HY2_CLIENT_UP" "$AFX_HY2_CLIENT_DOWN"
   printf 'service user     : %s\n' "$AFX_ACCOUNT"
   printf 'config file      : %s\n' "$AFX_CONFIG_FILE"
 }
@@ -673,8 +689,11 @@ install_fresh() {
   AFX_REALITY_SERVER=$(prompt_value "REALITY 握手站点" "$AFX_DEFAULT_REALITY_SERVER")
   AFX_REALITY_PORT=$(normalize_port "$(prompt_value "REALITY TCP 端口" "$(preferred_port tcp)")" tcp)
   AFX_HY2_PORT=$(normalize_port "$(prompt_value "Hysteria 2 UDP 端口" "$(preferred_port udp)")" udp)
-  AFX_HY2_UP=$(prompt_value "Hysteria 2 上行带宽上限 Mbps" "1500")
-  AFX_HY2_DOWN=$(prompt_value "Hysteria 2 下行带宽上限 Mbps" "1500")
+  note "Hysteria 2 极限吞吐建议填写接近真实链路的带宽，不要盲目虚高。服务端和客户端都需要各自匹配实际值。"
+  AFX_HY2_UP=$(prompt_value "Hysteria 2 服务端上行带宽上限 Mbps" "$AFX_DEFAULT_HY2_SERVER_UP")
+  AFX_HY2_DOWN=$(prompt_value "Hysteria 2 服务端下行带宽上限 Mbps" "$AFX_DEFAULT_HY2_SERVER_DOWN")
+  AFX_HY2_CLIENT_UP=$(prompt_value "Hysteria 2 客户端上行目标 Mbps（写入分享链接）" "$AFX_DEFAULT_HY2_CLIENT_UP")
+  AFX_HY2_CLIENT_DOWN=$(prompt_value "Hysteria 2 客户端下行目标 Mbps（写入分享链接）" "$AFX_DEFAULT_HY2_CLIENT_DOWN")
 
   if [[ "$AFX_REALITY_PORT" != "443" || "$AFX_HY2_PORT" != "443" ]]; then
     warn "检测到 443 已被占用，AeroFlux 将使用 REALITY ${AFX_REALITY_PORT}/tcp 与 Hysteria 2 ${AFX_HY2_PORT}/udp"
@@ -685,6 +704,8 @@ install_fresh() {
 
   [[ "$AFX_HY2_UP" =~ ^[0-9]+$ ]] || die "上行带宽必须是整数"
   [[ "$AFX_HY2_DOWN" =~ ^[0-9]+$ ]] || die "下行带宽必须是整数"
+  [[ "$AFX_HY2_CLIENT_UP" =~ ^[0-9]+$ ]] || die "客户端上行带宽必须是整数"
+  [[ "$AFX_HY2_CLIENT_DOWN" =~ ^[0-9]+$ ]] || die "客户端下行带宽必须是整数"
 
   AFX_CORE_VERSION=$(latest_core_version)
   download_core_binary "$AFX_CORE_VERSION"
@@ -711,6 +732,7 @@ install_fresh() {
   render_links
   good "${AFX_NAME} 部署完成"
   note "最终端口: REALITY ${AFX_REALITY_PORT}/tcp, Hysteria 2 ${AFX_HY2_PORT}/udp"
+  note "Hysteria 2 速率档: 服务端 ${AFX_HY2_UP}/${AFX_HY2_DOWN} Mbps, 客户端 ${AFX_HY2_CLIENT_UP}/${AFX_HY2_CLIENT_DOWN} Mbps"
   note "建议在 v2rayN 中同时保留 REALITY 与 Hysteria 2，两条线路按实时表现切换。"
 }
 

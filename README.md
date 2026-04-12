@@ -59,7 +59,8 @@ sudo ./install.sh
 - REALITY 握手站点
 - REALITY TCP 端口
 - Hysteria 2 UDP 端口
-- Hysteria 2 上下行带宽上限
+- Hysteria 2 服务端上下行带宽上限
+- Hysteria 2 客户端上下行目标带宽（写入分享链接）
 - 是否立即应用性能档案
 
 ## 管理方式
@@ -109,6 +110,8 @@ sudo afx tune remove
 1. REALITY 稳态链路
 2. Hysteria 2 高吞吐链路
 
+其中 Hysteria 2 链接会自动写入客户端带宽参数，避免导入后退回保守默认值。
+
 推荐使用策略：
 
 - 日常主用 REALITY
@@ -135,6 +138,7 @@ AeroFlux 默认按无域名部署设计：
 - 明确放行 REALITY 对应 TCP 端口与 Hysteria 2 对应 UDP 端口
 - 优先选择跨境链路质量更高的机房
 - 在内核支持的前提下开启性能档案
+- Hysteria 2 的服务端与客户端带宽值尽量贴近真实链路，虚高会影响吞吐稳定性
 
 ## 路线
 

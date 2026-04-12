@@ -20,17 +20,21 @@ write_profile() {
   cat > "$AFX_SYSCTL_FILE" <<'EOF'
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
-net.core.somaxconn = 4096
-net.core.netdev_max_backlog = 16384
-net.core.rmem_default = 8388608
-net.core.wmem_default = 8388608
-net.core.rmem_max = 33554432
-net.core.wmem_max = 33554432
+net.core.somaxconn = 65535
+net.core.netdev_max_backlog = 262144
+net.core.optmem_max = 25165824
+net.core.rmem_default = 16777216
+net.core.wmem_default = 16777216
+net.core.rmem_max = 67108864
+net.core.wmem_max = 67108864
 net.ipv4.tcp_fastopen = 3
 net.ipv4.tcp_mtu_probing = 1
-net.ipv4.udp_rmem_min = 16384
-net.ipv4.udp_wmem_min = 16384
-net.ipv4.udp_mem = 65536 131072 262144
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_rmem = 4096 87380 67108864
+net.ipv4.tcp_wmem = 4096 65536 67108864
+net.ipv4.udp_rmem_min = 32768
+net.ipv4.udp_wmem_min = 32768
+net.ipv4.udp_mem = 262144 524288 1048576
 EOF
 }
 
@@ -55,6 +59,7 @@ show_status() {
   sysctl net.core.rmem_max
   sysctl net.core.wmem_max
   sysctl net.core.netdev_max_backlog
+  sysctl net.ipv4.udp_mem
 }
 
 remove_profile() {
