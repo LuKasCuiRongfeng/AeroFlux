@@ -419,11 +419,13 @@ render_config() {
           {
             type: "hysteria2",
             tag: "edge-hy2",
+            sniff: true,
+            sniff_override_destination: true,
             listen: "::",
             listen_port: $hy2_port,
+            ignore_client_bandwidth: false,
             users: [
               {
-                name: "primary",
                 password: $hy2_secret
               }
             ],
@@ -436,11 +438,8 @@ render_config() {
           }
           + if $hy2_mode == "brutal" then {
               up_mbps: $hy2_up,
-              down_mbps: $hy2_down,
-              ignore_client_bandwidth: false
-            } else {
-              ignore_client_bandwidth: true
-            } end
+              down_mbps: $hy2_down
+            } else {} end
         )
       ],
       outbounds: [
@@ -627,7 +626,7 @@ render_links() {
   label=$(sanitize_label "$AFX_NODE_LABEL")
 
   reality_uri="vless://${AFX_NODE_ID}@${formatted_host}:${AFX_REALITY_PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${AFX_REALITY_SERVER}&fp=chrome&pbk=${AFX_REALITY_PUBLIC}&sid=${AFX_REALITY_SHORT_ID}&type=tcp&headerType=none#${label}-reality"
-  hy2_query="sni=${AFX_HY2_SNI}&alpn=h3&insecure=1&allowInsecure=1"
+  hy2_query="security=tls&alpn=h3&insecure=1&allowInsecure=1&sni=${AFX_HY2_SNI}"
   if [[ "$AFX_HY2_MODE" == "brutal" ]]; then
     hy2_query+="&upmbps=${AFX_HY2_CLIENT_UP}&downmbps=${AFX_HY2_CLIENT_DOWN}"
   fi
@@ -663,6 +662,7 @@ Down Mbps         : ${AFX_HY2_CLIENT_DOWN:-留空}
 
 Note:
 - 当前模式为 ${AFX_HY2_MODE}。
+- bbr 模式已尽量贴近原仓库的最终 hy2 配置与分享参数。
 - 如果是 bbr 模式，请把 v2rayN 的 Hysteria 最大流量（Up/Dw）留空，不要手填。
 - 如果是 brutal 模式，请把 v2rayN 的 Hysteria 最大流量（Up/Dw）按这里手动填写。
 - 某些 v2rayN 版本导入 hy2:// 链接时不会自动写入 Up/Down Mbps。
@@ -707,9 +707,6 @@ quic:
   maxStreamReceiveWindow: 26843545
   initConnReceiveWindow: 67108864
   maxConnReceiveWindow: 67108864
-congestion:
-  type: bbr
-  bbrProfile: aggressive
 fastOpen: true
 socks5:
   listen: 127.0.0.1:1080
@@ -820,8 +817,8 @@ install_fresh() {
   AFX_REALITY_SERVER=$(prompt_value "REALITY 握手站点" "$AFX_DEFAULT_REALITY_SERVER")
   AFX_REALITY_PORT=$(normalize_port "$(prompt_value "REALITY TCP 端口" "$(preferred_port tcp)")" tcp)
   AFX_HY2_PORT=$(normalize_port "$(prompt_value "Hysteria 2 UDP 端口" "$(preferred_port udp)")" udp)
-  note "Hysteria 2 现在支持两种模式：1 为 BBR 兼容高速模式，行为更接近原仓库；2 为 Brutal 锁带宽模式，适合明确知道链路极限时压榨吞吐。"
-  AFX_HY2_MODE=$(normalize_hy2_mode "$(prompt_value "Hysteria 2 模式：1=BBR兼容高速 2=Brutal锁带宽" "1")")
+  note "Hysteria 2 现在支持两种模式：1 为 Legacy BBR 兼容模式，尽量贴近原仓库；2 为 Brutal 锁带宽模式，适合明确知道链路极限时压榨吞吐。"
+  AFX_HY2_MODE=$(normalize_hy2_mode "$(prompt_value "Hysteria 2 模式：1=Legacy-BBR兼容 2=Brutal锁带宽" "1")")
   if [[ "$AFX_HY2_MODE" == "brutal" ]]; then
     note "Brutal 模式需要服务端和客户端都填写接近真实链路的带宽，不要盲目虚高。"
     AFX_HY2_UP=$(prompt_value "Hysteria 2 服务端上行带宽上限 Mbps" "$AFX_DEFAULT_HY2_SERVER_UP")
@@ -853,7 +850,7 @@ install_fresh() {
   download_core_binary "$AFX_CORE_VERSION"
 
   AFX_NODE_ID=$(cat /proc/sys/kernel/random/uuid)
-  AFX_HY2_SECRET=$(openssl rand -hex 16)
+  AFX_HY2_SECRET="$AFX_NODE_ID"
   AFX_ENDPOINT=$(public_host)
 
   generate_tls_material "$AFX_ENDPOINT"
@@ -877,7 +874,7 @@ install_fresh() {
   if [[ "$AFX_HY2_MODE" == "brutal" ]]; then
     note "Hysteria 2 模式: Brutal 锁带宽，服务端 ${AFX_HY2_UP}/${AFX_HY2_DOWN} Mbps, 客户端 ${AFX_HY2_CLIENT_UP}/${AFX_HY2_CLIENT_DOWN} Mbps"
   else
-    note "Hysteria 2 模式: BBR 兼容高速，客户端 Up/Dw 请留空，行为更接近原仓库默认链路"
+    note "Hysteria 2 模式: Legacy BBR 兼容，客户端 Up/Dw 请留空，分享参数与服务端行为已尽量贴近原仓库"
   fi
   note "建议在 v2rayN 中同时保留 REALITY 与 Hysteria 2，两条线路按实时表现切换。"
 }
