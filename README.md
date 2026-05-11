@@ -9,6 +9,8 @@ AeroFlux 是一个围绕高性能自建链路重新设计的 VPS 项目，不是
 
 它的目标不是“协议越多越强”，而是把真正有价值的两条链路打磨到更高完成度。
 
+这个项目是对 `https://github.com/yonggekkk/sing-box-yg` 的全面重写，只保留 Vless-reality-vision 和 Hysteria 2
+
 ## 新架构
 
 这一版 AeroFlux 的实现重点是：
